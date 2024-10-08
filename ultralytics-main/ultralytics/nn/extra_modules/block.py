@@ -8,7 +8,7 @@ from functools import partial
 from typing import Optional, Callable, Union
 # from einops import rearrange
 # from ultralytics.utils.torch_utils import make_divisible
-from ..modules.conv import Conv, DWConv, DSConv, RepConv, GhostConv, autopad
+from ..modules.conv import Conv
 from ..modules.block import *
 
 __all__ = ['C2f_EMSC']
