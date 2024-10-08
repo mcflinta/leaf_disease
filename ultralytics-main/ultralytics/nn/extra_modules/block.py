@@ -11,7 +11,7 @@ from typing import Optional, Callable, Union
 from ..modules.conv import Conv
 from ..modules.block import *
 
-__all__ = ['C2f_EMSC']
+__all__ = ["C2f_EMSC",]
 
 ######################################## EMSConv+EMSConvP begin ########################################
 
