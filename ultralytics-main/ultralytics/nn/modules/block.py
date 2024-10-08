@@ -4,6 +4,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 
 from ultralytics.utils.torch_utils import fuse_conv_and_bn
 
