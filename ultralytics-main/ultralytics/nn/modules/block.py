@@ -51,6 +51,7 @@ __all__ = (
     "PSA",
     "SCDown",
     "C2f_EMSC",
+    "C3k2_EMSC",
 )
 
 
@@ -1168,3 +1169,11 @@ class C2f_EMSC(C2f):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+
+class C3k2_EMSC(C2f):
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(
+            Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n)
+        )
