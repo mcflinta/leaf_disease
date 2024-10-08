@@ -50,9 +50,7 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
-    "C2f_EMSC",
-    "C3k2_EMSC",
-    "C3k2_EMSC_ECA",
+
 )
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
@@ -731,16 +729,33 @@ class C3f(nn.Module):
         return self.cv3(torch.cat(y, 1))
 
 
-class C3k2(C2f):
-    """Faster Implementation of CSP Bottleneck with 2 convolutions."""
+# class C3k2(C2f):
+#     """Faster Implementation of CSP Bottleneck with 2 convolutions."""
 
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-        """Initializes the C3k2 module, a faster CSP Bottleneck with 2 convolutions and optional C3k blocks."""
+#     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+#         """Initializes the C3k2 module, a faster CSP Bottleneck with 2 convolutions and optional C3k blocks."""
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         self.m = nn.ModuleList(
+#             C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck(self.c, self.c, shortcut, g) for _ in range(n)
+#         )
+class C3k2(C2f):
+    """Faster Implementation of CSP Bottleneck with 2 convolutions and SE block integration."""
+
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True, reduction=16):
+        """Initializes the C3k2 module with SE blocks."""
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(
-            C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck(self.c, self.c, shortcut, g) for _ in range(n)
+            nn.Sequential(
+                C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck(self.c, self.c, shortcut, g),
+                SEBlock(self.c, reduction)  # Add SE block after each Bottleneck
+            ) for _ in range(n)
         )
 
+    def forward(self, x):
+        """Forward pass through C3k2 with SE blocks."""
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+        return self.cv2(torch.cat(y, 1))
 
 class C3k(C3):
     """C3k is a CSP bottleneck module with customizable kernel sizes for feature extraction in neural networks."""
@@ -1120,107 +1135,23 @@ class SCDown(nn.Module):
 
 ######################################## EMSConv+EMSConvP begin ########################################
 
-class EMSConv(nn.Module):
-    # Efficient Multi-Scale Conv
-    def __init__(self, channel=256, kernels=[3, 5]):
-        super().__init__()
-        self.groups = len(kernels)
-        min_ch = channel // 4
-        assert min_ch >= 16, f'channel must Greater than {64}, but {channel}'
-        
-        self.convs = nn.ModuleList([])
-        for ks in kernels:
-            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
-        self.conv_1x1 = Conv(channel, channel, k=1)
-        
-    def forward(self, x):
-        _, c, _, _ = x.size()
-        x_cheap, x_group = torch.split(x, [c // 2, c // 2], dim=1)
-        x_group = rearrange(x_group, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
-        x_group = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
-        x_group = rearrange(x_group, 'g bs ch h w -> bs (g ch) h w')
-        x = torch.cat([x_cheap, x_group], dim=1)
-        x = self.conv_1x1(x)
-        
-        return x
-
-
-class Bottleneck_EMSC(Bottleneck):
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        super().__init__(c1, c2, shortcut, g, k, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
-        self.cv2 = EMSConv(c2)
-
-
-class C2f_EMSC(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
-
-
-class C3k2_EMSC(C3k2):
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(
-            Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n)
-        )
-
-######### Custom #########
-class eca_layer(nn.Module):
-    def __init__(self, channel, k_size=3):
-        super(eca_layer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False) 
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        b, c, h, w = x.size()
-
-        # Global average pooling
-        y = self.avg_pool(x)
-
-        # Convolution và sigmoid
-        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
-        y = self.sigmoid(y)
-
-        return x * y.expand_as(x)
-class EMSConv_ECA(nn.Module):
-    # Efficient Multi-Scale Conv ECA
-    def __init__(self, channel=256, kernels=[3, 5]):
-        super().__init__()
-        self.groups = len(kernels)
-        min_ch = channel // 4
-        assert min_ch >= 16, f'channel must Greater than {64}, but {channel}'
-        
-        self.convs = nn.ModuleList([])
-        for ks in kernels:
-            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
-        self.conv_1x1 = Conv(channel, channel, k=1)
-        self.eca = eca_layer(channel)
-
-    def forward(self, x):
-        _, c, _, _ = x.size()
-        x_cheap, x_group = torch.split(x, [c // 2, c // 2], dim=1)
-        x_group = rearrange(x_group, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
-        x_group = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
-        x_group = rearrange(x_group, 'g bs ch h w -> bs (g ch) h w')
-        x = torch.cat([x_cheap, x_group], dim=1)
-        x = self.conv_1x1(x)
-        x = self.eca(x)
-        
-        return x
+class SEBlock(nn.Module):
+    """Squeeze-and-Excitation Block"""
     
-class Bottleneck_EMSC_ECA(Bottleneck):
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        super().__init__(c1, c2, shortcut, g, k, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
-        self.cv2 = EMSConv_ECA(c2)
-
-class C3k2_EMSC_ECA(C3k2):
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(
-            Bottleneck_EMSC_ECA(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n)
+    def __init__(self, c, reduction=16):
+        """Initialize SE block with given channels and reduction ratio."""
+        super(SEBlock, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)  # Squeeze: global average pooling
+        self.fc = nn.Sequential(
+            nn.Linear(c, c // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(c // reduction, c, bias=False),
+            nn.Sigmoid()  # Excitation: generate channel-wise weights
         )
+
+    def forward(self, x):
+        """Forward pass through SE block."""
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        return x * y  # Channel-wise multiplication
