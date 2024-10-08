@@ -1139,10 +1139,8 @@ class EMSConv(nn.Module):
 
 
 class Bottleneck_EMSC(Bottleneck):
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        super().__init__(c1, c2, shortcut, g, k, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
+    def __init__(self, c1, c2, shortcut=True):
+        super().__init__(c1, c2, shortcut)
         self.cv2 = EMSConv(c2)
 
 
@@ -1156,8 +1154,10 @@ class C3k2_EMSC(C3k2):
     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(
-            Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n)
+            Bottleneck_EMSC(self.c, self.c, shortcut, g) for _ in range(n)
         )
+
+
 
 ######### Custom #########
 class eca_layer(nn.Module):
