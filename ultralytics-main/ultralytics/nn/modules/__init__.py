@@ -56,7 +56,7 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
-
+    C3k2_EMSC,
 )
 from .conv import (
     CBAM,
