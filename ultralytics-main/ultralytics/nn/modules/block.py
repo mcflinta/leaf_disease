@@ -1163,16 +1163,20 @@ class EMSConv(nn.Module):
         x = self.conv_1x1(x)
         
         return x
+class Bottleneck_EMSC(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConv(c2)
+
+class C2f_EMSC(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
 class C3k2_EMSC(C3k2):
-    """Combination of C3k2 with EMSC module."""
-
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True, emsc_channel=256, kernels=[3, 5]):
-        """Initializes the C3k2_EMSC module, combining C3k2 with EMSC."""
+    def __init__(self, c1, c2, n=1, c3k=False, shortcut=True, g=1, e=0.5):
         super().__init__(c1, c2, n, c3k, e, g, shortcut)
-        self.emsc = EMSConv(channel=emsc_channel, kernels=kernels)
-
-    def forward(self, x):
-        """Forward pass through C3k2 and EMSC modules."""
-        x = super().forward(x)
-        x = self.emsc(x)
-        return x
+        self.m = nn.ModuleList(
+            Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n)
+        )
