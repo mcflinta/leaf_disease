@@ -50,7 +50,7 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
-
+    "C3k2_EMSC"
 )
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
