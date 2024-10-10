@@ -57,6 +57,7 @@ from .block import (
     ResNetLayer,
     SCDown,
     C3k2_EMSC,
+    C2f_EMSC,
 )
 from .conv import (
     CBAM,
@@ -158,4 +159,5 @@ __all__ = (
     "Attention",
     "PSA",
     "C3k2_EMSC",
+    "C2f_EMSC",
 )

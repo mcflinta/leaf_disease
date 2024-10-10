@@ -50,7 +50,8 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
-    "C3k2_EMSC"
+    "C3k2_EMSC",
+    "C2f_EMSC",
 )
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
@@ -1174,10 +1175,9 @@ class C2f_EMSC(C2f):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
-class C3k2_EMSC(C3k2):
-    def __init__(self, c1, c2, n=1, c3k=False, shortcut=True, g=1, e=0.5):
-        super().__init__(c1, c2, n, c3k, e, g, shortcut)
-        self.m = nn.ModuleList(
-            C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n)
-        )
 
+
+class C3k2_EMSC(C3k2):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
