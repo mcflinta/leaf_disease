@@ -61,7 +61,23 @@ from ultralytics.nn.modules import (
     WorldDetect,
     v10Detect,
     C3k2_EMSC,
+    C3k2_EMSC_SE,
+    C3k2_EMSC_ECA,
     C2f_EMSC,
+    C2f_EMSC_SE,
+    C2f_EMSC_ECA,
+    C3_EMSC,
+    C3_EMSC_SE,
+    C3_EMSC_ECA,
+    C3k2_EMSCP,
+    C2f_EMSCP,
+    C2f_EMSCP_SE,
+    C2f_EMSCP_ECA,
+    C3k2_EMSCP_SE,
+    C3k2_EMSCP_ECA,
+    C3_EMSCP,
+    C3_EMSCP_SE,
+    C3_EMSCP_ECA,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -999,7 +1015,23 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             SCDown,
             C2fCIB,
             C3k2_EMSC,
+            C3k2_EMSC_ECA,
+            C3k2_EMSC_SE,
             C2f_EMSC,
+            C2f_EMSC_SE,
+            C2f_EMSC_ECA,
+            C3_EMSC,
+            C3_EMSC_SE,
+            C3_EMSC_ECA,
+            C3k2_EMSCP,
+            C2f_EMSCP,
+            C2f_EMSCP_SE,
+            C2f_EMSCP_ECA,
+            C3k2_EMSCP_SE,
+            C3k2_EMSCP_ECA,
+            C3_EMSCP,
+            C3_EMSCP_SE,
+            C3_EMSCP_ECA
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)

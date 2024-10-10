@@ -52,6 +52,22 @@ __all__ = (
     "SCDown",
     "C3k2_EMSC",
     "C2f_EMSC",
+    "C2f_EMSC_SE",
+    "C2f_EMSC_ECA",
+    "C3k2_EMSC_SE",
+    "C3k2_EMSC_ECA",
+    "C3_EMSC",
+    "C3_EMSC_SE",
+    "C3_EMSC_ECA",
+    "C3k2_EMSCP",
+    "C2f_EMSCP",
+    "C2f_EMSCP_SE",
+    "C2f_EMSCP_ECA",
+    "C3k2_EMSCP_SE",
+    "C3k2_EMSCP_ECA",
+    "C3_EMSCP",
+    "C3_EMSCP_SE",
+    "C3_EMSCP_ECA",
 )
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
@@ -1141,6 +1157,25 @@ class SEBlock(nn.Module):
         return x * y  # Channel-wise multiplication
 
 
+# ECA Layer
+class eca_layer(nn.Module):
+    def __init__(self, channel, k_size=3):
+        super(eca_layer, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.conv = nn.Conv1d(1, 1, kernel_size=k_size, padding=(k_size - 1) // 2, bias=False) 
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        b, c, h, w = x.size()
+
+        # Global average pooling
+        y = self.avg_pool(x)
+
+        # Convolution và sigmoid
+        y = self.conv(y.squeeze(-1).transpose(-1, -2)).transpose(-1, -2).unsqueeze(-1)
+        y = self.sigmoid(y)
+
+        return x * y.expand_as(x)
 class EMSConv(nn.Module):
     # Efficient Multi-Scale Conv
     def __init__(self, channel=256, kernels=[3, 5]):
@@ -1164,12 +1199,163 @@ class EMSConv(nn.Module):
         x = self.conv_1x1(x)
         
         return x
+
+class EMSConv_ECA(nn.Module):
+    # Efficient Multi-Scale Conv
+    def __init__(self, channel=256, kernels=[3, 5]):
+        super().__init__()
+        self.groups = len(kernels)
+        min_ch = channel // 4
+        assert min_ch >= 16, f'channel must Greater than {64}, but {channel}'
+        
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        self.eca = eca_layer(channel)
+
+    def forward(self, x):
+        _, c, _, _ = x.size()
+        x_cheap, x_group = torch.split(x, [c // 2, c // 2], dim=1)
+        x_group = rearrange(x_group, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_group = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_group = rearrange(x_group, 'g bs ch h w -> bs (g ch) h w')
+        x = torch.cat([x_cheap, x_group], dim=1)
+        x = self.conv_1x1(x)
+        x = self.eca(x)
+        return x
+    
+class EMSConv_SE(nn.Module):
+    # Efficient Multi-Scale Conv
+    def __init__(self, channel=256, kernels=[3, 5]):
+        super().__init__()
+        self.groups = len(kernels)
+        min_ch = channel // 4
+        assert min_ch >= 16, f'channel must Greater than {64}, but {channel}'
+        
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        self.se = SEBlock(channel, 16)
+
+    def forward(self, x):
+        _, c, _, _ = x.size()
+        x_cheap, x_group = torch.split(x, [c // 2, c // 2], dim=1)
+        x_group = rearrange(x_group, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_group = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_group = rearrange(x_group, 'g bs ch h w -> bs (g ch) h w')
+        x = torch.cat([x_cheap, x_group], dim=1)
+        x = self.conv_1x1(x)
+        x = self.se(x)
+        return x
+
+class EMSConvP(nn.Module):
+    # Efficient Multi-Scale Conv Plus
+    def __init__(self, channel=256, kernels=[1, 3, 5, 7]):
+        super().__init__()
+        self.groups = len(kernels)
+        min_ch = channel // self.groups
+        assert min_ch >= 16, f'channel must Greater than {16 * self.groups}, but {channel}'
+        
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        
+    def forward(self, x):
+        x_group = rearrange(x, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_convs = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_convs = rearrange(x_convs, 'g bs ch h w -> bs (g ch) h w')
+        x_convs = self.conv_1x1(x_convs)
+        
+        return x_convs
+
+class EMSConvP_SE(nn.Module):
+    # Efficient Multi-Scale Conv Plus
+    def __init__(self, channel=256, kernels=[1, 3, 5, 7]):
+        super().__init__()
+        self.groups = len(kernels)
+        min_ch = channel // self.groups
+        assert min_ch >= 16, f'channel must Greater than {16 * self.groups}, but {channel}'
+        
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        self.se = SEBlock(channel, 16)
+
+        
+    def forward(self, x):
+        x_group = rearrange(x, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_convs = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_convs = rearrange(x_convs, 'g bs ch h w -> bs (g ch) h w')
+        x_convs = self.conv_1x1(x_convs)
+        x = self.se(x)
+        return x_convs
+
+class EMSConvP_ECA(nn.Module):
+    # Efficient Multi-Scale Conv Plus
+    def __init__(self, channel=256, kernels=[1, 3, 5, 7]):
+        super().__init__()
+        self.groups = len(kernels)
+        min_ch = channel // self.groups
+        assert min_ch >= 16, f'channel must Greater than {16 * self.groups}, but {channel}'
+        
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        self.eca = eca_layer(channel)
+
+    def forward(self, x):
+        x_group = rearrange(x, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_convs = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_convs = rearrange(x_convs, 'g bs ch h w -> bs (g ch) h w')
+        x_convs = self.conv_1x1(x_convs)
+        x = self.eca(x)
+        return x_convs
+
 class Bottleneck_EMSC(Bottleneck):
     def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
         super().__init__(c1, c2, shortcut, g, k, e)
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, k[0], 1)
         self.cv2 = EMSConv(c2)
+    
+class Bottleneck_EMSC_SE(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConv_SE(c2)
+class Bottleneck_EMSC_ECA(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConv_ECA(c2)
+
+class Bottleneck_EMSCP(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConvP(c2)
+
+class Bottleneck_EMSCP_SE(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConvP_SE(c2)
+
+class Bottleneck_EMSCP_ECA(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConvP_ECA(c2)
 
 class C2f_EMSC(C2f):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
@@ -1177,8 +1363,97 @@ class C2f_EMSC(C2f):
         self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
 
 
+class C2f_EMSC_SE(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC_SE(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+
+class C2f_EMSC_ECA(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC_ECA(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C2f_EMSCP(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C2f_EMSCP_SE(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP_SE(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C2f_EMSCP_ECA(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP_ECA(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
 class C3k2_EMSC(C3k2):
     def __init__(self, c1, c2, n=1, 
                  c3k2=False,shortcut=True, g=1, e=0.5):
         super().__init__(c1, c2, n, c3k2, shortcut, g, e)
         self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C3k2_EMSC_SE(C3k2):
+    def __init__(self, c1, c2, n=1, 
+                 c3k2=False,shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, c3k2, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC_SE(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+    
+class C3k2_EMSC_ECA(C3k2):
+    def __init__(self, c1, c2, n=1, 
+                 c3k2=False,shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, c3k2, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC_ECA(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C3k2_EMSCP(C3k2):
+    def __init__(self, c1, c2, n=1, 
+                 c3k2=False,shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, c3k2, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+class C3k2_EMSCP_ECA(C3k2):
+    def __init__(self, c1, c2, n=1, 
+                 c3k2=False,shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, c3k2, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP_ECA(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C3k2_EMSCP_SE(C3k2):
+    def __init__(self, c1, c2, n=1, 
+                 c3k2=False,shortcut=True, g=1, e=0.5):
+        super().__init__(c1, c2, n, c3k2, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP_SE(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+class C3_EMSC(C3):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(Bottleneck_EMSC(c_, c_, shortcut, g, k=((1, 1), (3, 3)), e=1.0) for _ in range(n)))
+
+class C3_EMSC_SE(C3):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(Bottleneck_EMSC_SE(c_, c_, shortcut, g, k=((1, 1), (3, 3)), e=1.0) for _ in range(n)))
+
+class C3_EMSC_ECA(C3):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(Bottleneck_EMSC_ECA(c_, c_, shortcut, g, k=((1, 1), (3, 3)), e=1.0) for _ in range(n)))
+    
+class C3_EMSCP(C3):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(Bottleneck_EMSCP(c_, c_, shortcut, g, k=((1, 1), (3, 3)), e=1.0) for _ in range(n)))
+
+class C3_EMSCP_SE(C3):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(Bottleneck_EMSCP_SE(c_, c_, shortcut, g, k=((1, 1), (3, 3)), e=1.0) for _ in range(n)))
+
+class C3_EMSCP_ECA(C3):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(Bottleneck_EMSCP_ECA(c_, c_, shortcut, g, k=((1, 1), (3, 3)), e=1.0) for _ in range(n)))
