@@ -10,6 +10,7 @@ from typing import Optional, Callable, Union
 # from ultralytics.utils.torch_utils import make_divisible
 from ..modules.conv import Conv
 from ..modules.block import *
+from einops import rearrange
 
 __all__ = ["C2f_EMSC",]
 
