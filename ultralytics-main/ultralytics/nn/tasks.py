@@ -1014,24 +1014,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             PSA,
             SCDown,
             C2fCIB,
-            C3k2_EMSC,
-            C3k2_EMSC_ECA,
-            C3k2_EMSC_SE,
-            C2f_EMSC,
-            C2f_EMSC_SE,
-            C2f_EMSC_ECA,
-            C3_EMSC,
-            C3_EMSC_SE,
-            C3_EMSC_ECA,
-            C3k2_EMSCP,
-            C2f_EMSCP,
-            C2f_EMSCP_SE,
-            C2f_EMSCP_ECA,
-            C3k2_EMSCP_SE,
-            C3k2_EMSCP_ECA,
-            C3_EMSCP,
-            C3_EMSCP_SE,
-            C3_EMSCP_ECA
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
@@ -1058,6 +1040,24 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 C2fPSA,
                 C2fCIB,
                 C2PSA,
+                            C3k2_EMSC,
+            C3k2_EMSC_ECA,
+            C3k2_EMSC_SE,
+            C2f_EMSC,
+            C2f_EMSC_SE,
+            C2f_EMSC_ECA,
+            C3_EMSC,
+            C3_EMSC_SE,
+            C3_EMSC_ECA,
+            C3k2_EMSCP,
+            C2f_EMSCP,
+            C2f_EMSCP_SE,
+            C2f_EMSCP_ECA,
+            C3k2_EMSCP_SE,
+            C3k2_EMSCP_ECA,
+            C3_EMSCP,
+            C3_EMSCP_SE,
+            C3_EMSCP_ECA
             }:
                 args.insert(2, n)  # number of repeats
                 n = 1
