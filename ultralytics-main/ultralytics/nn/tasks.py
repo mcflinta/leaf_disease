@@ -78,6 +78,8 @@ from ultralytics.nn.modules import (
     C3_EMSCP,
     C3_EMSCP_SE,
     C3_EMSCP_ECA,
+    EMSConv, 
+    EMSConvP,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml

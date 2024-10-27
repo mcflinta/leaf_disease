@@ -74,6 +74,8 @@ from .block import (
     C3_EMSCP,
     C3_EMSCP_SE,
     C3_EMSCP_ECA,
+    EMSConv, 
+    EMSConvP,
 )
 from .conv import (
     CBAM,
@@ -192,4 +194,6 @@ __all__ = (
     "C3_EMSCP",
     "C3_EMSCP_SE",
     "C3_EMSCP_ECA",
+    'EMSConv', 
+    'EMSConvP',
 )
