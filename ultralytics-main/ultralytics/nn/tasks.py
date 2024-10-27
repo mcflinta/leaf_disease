@@ -108,6 +108,7 @@ except ImportError:
 
 
 class BaseModel(nn.Module):
+
     """The BaseModel class serves as a base class for all the models in the Ultralytics YOLO family."""
 
     def forward(self, x, *args, **kwargs):
@@ -165,14 +166,26 @@ class BaseModel(nn.Module):
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
-            x = m(x)  # run
-            y.append(x if m.i in self.save else None)  # save output
-            if visualize:
-                feature_visualization(x, m.type, m.i, save_dir=visualize)
-            if embed and m.i in embed:
-                embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
-                if m.i == max(embed):
-                    return torch.unbind(torch.cat(embeddings, 1), dim=0)
+            if hasattr(m, 'backbone'):
+                x = m(x)
+                for _ in range(5 - len(x)):
+                    x.insert(0, None)
+                for i_idx, i in enumerate(x):
+                    if i_idx in self.save:
+                        y.append(i)
+                    else:
+                        y.append(None)
+                # print(f'layer id:{idx:>2} {m.type:>50} output shape:{", ".join([str(x_.size()) for x_ in x if x_ is not None])}')
+                x = x[-1]
+            else:
+                x = m(x)  # run
+                y.append(x if m.i in self.save else None)  # save output
+                if visualize:
+                    feature_visualization(x, m.type, m.i, save_dir=visualize)
+                if embed and m.i in embed:
+                    embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
+                    if m.i == max(embed):
+                        return torch.unbind(torch.cat(embeddings, 1), dim=0)
         return x
 
     def _predict_augment(self, x):
@@ -196,7 +209,16 @@ class BaseModel(nn.Module):
         Returns:
             None
         """
+        if type(x) is tuple:
+            x = list(x)
         c = m == self.model[-1] and isinstance(x, list)  # is final layer list, copy input as inplace fix
+        if type(x) is list:
+            try:
+                bs = x[0].size(0)
+            except:
+                bs = x[0][0].size(0)
+        else:
+            bs = x.size(0)
         flops = thop.profile(m, inputs=[x.copy() if c else x], verbose=False)[0] / 1e9 * 2 if thop else 0  # GFLOPs
         t = time_sync()
         for _ in range(10):
@@ -328,29 +350,49 @@ class DetectionModel(BaseModel):
             )
             self.yaml["backbone"][0][2] = "nn.Identity"
 
+        # Warehouse_Manager
+        warehouse_manager_flag = self.yaml.get('Warehouse_Manager', False)
+        self.warehouse_manager = None
+        if warehouse_manager_flag:
+            self.warehouse_manager = Warehouse_Manager(cell_num_ratio=self.yaml.get('Warehouse_Manager_Ratio', 1.0))
+        
         # Define model
         ch = self.yaml["ch"] = self.yaml.get("ch", ch)  # input channels
         if nc and nc != self.yaml["nc"]:
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml["nc"] = nc  # override YAML value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose, warehouse_manager=self.warehouse_manager)  # model, savelist
         self.names = {i: f"{i}" for i in range(self.yaml["nc"])}  # default names dict
         self.inplace = self.yaml.get("inplace", True)
         self.end2end = getattr(self.model[-1], "end2end", False)
+        
+        if warehouse_manager_flag:
+            self.warehouse_manager.store()
+            self.warehouse_manager.allocate(self)
+            self.net_update_temperature(0)
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
-            s = 256  # 2x min stride
+        if isinstance(m, (DETECT_CLASS + SEGMENT_CLASS + POSE_CLASS + OBB_CLASS + V10_DETECT_CLASS)):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
+            s = 640  # 2x min stride
             m.inplace = self.inplace
 
             def _forward(x):
                 """Performs a forward pass through the model, handling different Detect subclass types accordingly."""
+                if isinstance(m, (DetectAux,)):
+                    return self.forward(x)[:3]
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB)) else self.forward(x)
+                return self.forward(x)[0] if isinstance(m, SEGMENT_CLASS + POSE_CLASS + OBB_CLASS) else self.forward(x)
 
-            m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
+            try:
+                m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(2, ch, s, s))])  # forward
+            except RuntimeError as e:
+                if 'Not implemented on the CPU' in str(e) or 'Input type (torch.FloatTensor) and weight type (torch.cuda.FloatTensor)' in str(e) or 'CUDA tensor' in str(e) or 'is_cuda()' in str(e):
+                    self.model.to(torch.device('cuda'))
+                    m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(2, ch, s, s).to(torch.device('cuda')))])  # forward
+                else:
+                    raise e
             self.stride = m.stride
             m.bias_init()  # only run once
         else:
@@ -364,8 +406,11 @@ class DetectionModel(BaseModel):
 
     def _predict_augment(self, x):
         """Perform augmentations on input image x and return augmented inference and train outputs."""
-        if getattr(self, "end2end", False) or self.__class__.__name__ != "DetectionModel":
-            LOGGER.warning("WARNING ⚠️ Model does not support 'augment=True', reverting to single-scale prediction.")
+        if getattr(self, "end2end", False):
+            LOGGER.warning(
+                "WARNING ⚠️ End2End model does not support 'augment=True' prediction. "
+                "Reverting to single-scale prediction."
+            )
             return self._predict_once(x)
         img_size = x.shape[-2:]  # height, width
         s = [1, 0.83, 0.67]  # scales
@@ -403,7 +448,12 @@ class DetectionModel(BaseModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
-        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
+        return E2EDetectLoss(self) if self.end2end else v8DetectionLoss(self)
+    
+    def net_update_temperature(self, temp):
+        for m in self.modules():
+            if hasattr(m, "update_temperature"):
+                m.update_temperature(temp)
 
 
 class OBBModel(DetectionModel):
@@ -948,7 +998,7 @@ def attempt_load_one_weight(weight, device=None, inplace=True, fuse=False):
     return model, ckpt
 
 
-def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
+def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, input_channels(3)
     """Parse a YOLO model.yaml dictionary into a PyTorch model."""
     import ast
 
@@ -972,6 +1022,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<60}{'arguments':<50}")
     ch = [ch]
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
+    is_backbone = False
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
         try:
             if m == 'node_mode':
@@ -990,8 +1041,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                         args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
                     except:
                         args[j] = a
-
-        n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
+        n = n_ = max(round(n * depth), 1)if n > 1 else n  # depth gain
         if m in {
             Classify,
             Conv,
