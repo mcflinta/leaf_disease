@@ -362,7 +362,7 @@ class DetectionModel(BaseModel):
         # Build strides
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
-            s = 640  # 2x min stride
+            s = 256  # 2x min stride
             m.inplace = self.inplace
 
             def _forward(x):
@@ -1141,7 +1141,10 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
             c1 = ch[f]
             args = [c1, c2, *args[1:]]
         elif m is CBFuse:
-            c2 = ch[f[-1]]
+            c2 = ch[f[-1]]        
+        elif m in {EMSConv, EMSConvP}:
+            c2 = ch[f]
+            args = [c2, *args]
         else:
             c2 = ch[f]
 
