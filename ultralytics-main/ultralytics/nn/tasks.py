@@ -335,7 +335,6 @@ class BaseModel(nn.Module):
         """Initialize the loss criterion for the BaseModel."""
         raise NotImplementedError("compute_loss() needs to be implemented by task heads")
 
-
 class DetectionModel(BaseModel):
     """YOLOv8 detection model."""
 
@@ -350,26 +349,15 @@ class DetectionModel(BaseModel):
             )
             self.yaml["backbone"][0][2] = "nn.Identity"
 
-        # Warehouse_Manager
-        warehouse_manager_flag = self.yaml.get('Warehouse_Manager', False)
-        self.warehouse_manager = None
-        if warehouse_manager_flag:
-            self.warehouse_manager = Warehouse_Manager(cell_num_ratio=self.yaml.get('Warehouse_Manager_Ratio', 1.0))
-        
         # Define model
         ch = self.yaml["ch"] = self.yaml.get("ch", ch)  # input channels
         if nc and nc != self.yaml["nc"]:
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml["nc"] = nc  # override YAML value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose, warehouse_manager=self.warehouse_manager)  # model, savelist
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)  # model, savelist
         self.names = {i: f"{i}" for i in range(self.yaml["nc"])}  # default names dict
         self.inplace = self.yaml.get("inplace", True)
         self.end2end = getattr(self.model[-1], "end2end", False)
-        
-        if warehouse_manager_flag:
-            self.warehouse_manager.store()
-            self.warehouse_manager.allocate(self)
-            self.net_update_temperature(0)
 
         # Build strides
         m = self.model[-1]  # Detect()
@@ -379,20 +367,11 @@ class DetectionModel(BaseModel):
 
             def _forward(x):
                 """Performs a forward pass through the model, handling different Detect subclass types accordingly."""
-                if isinstance(m, (DetectAux,)):
-                    return self.forward(x)[:3]
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] 
+                return self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB)) else self.forward(x)
 
-            try:
-                m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(2, ch, s, s))])  # forward
-            except RuntimeError as e:
-                if 'Not implemented on the CPU' in str(e) or 'Input type (torch.FloatTensor) and weight type (torch.cuda.FloatTensor)' in str(e) or 'CUDA tensor' in str(e) or 'is_cuda()' in str(e):
-                    self.model.to(torch.device('cuda'))
-                    m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(2, ch, s, s).to(torch.device('cuda')))])  # forward
-                else:
-                    raise e
+            m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])  # forward
             self.stride = m.stride
             m.bias_init()  # only run once
         else:
@@ -406,11 +385,8 @@ class DetectionModel(BaseModel):
 
     def _predict_augment(self, x):
         """Perform augmentations on input image x and return augmented inference and train outputs."""
-        if getattr(self, "end2end", False):
-            LOGGER.warning(
-                "WARNING ⚠️ End2End model does not support 'augment=True' prediction. "
-                "Reverting to single-scale prediction."
-            )
+        if getattr(self, "end2end", False) or self.__class__.__name__ != "DetectionModel":
+            LOGGER.warning("WARNING ⚠️ Model does not support 'augment=True', reverting to single-scale prediction.")
             return self._predict_once(x)
         img_size = x.shape[-2:]  # height, width
         s = [1, 0.83, 0.67]  # scales
@@ -448,12 +424,7 @@ class DetectionModel(BaseModel):
 
     def init_criterion(self):
         """Initialize the loss criterion for the DetectionModel."""
-        return E2EDetectLoss(self) if self.end2end else v8DetectionLoss(self)
-    
-    def net_update_temperature(self, temp):
-        for m in self.modules():
-            if hasattr(m, "update_temperature"):
-                m.update_temperature(temp)
+        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
 
 
 class OBBModel(DetectionModel):
