@@ -1033,6 +1033,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C3_EMSCP_SE,
             C3_EMSCP_ECA
         }:
+            if args[0] == 'head_channel':
+                args[0] = d[args[0]]
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
