@@ -373,8 +373,8 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (POSE_CLASS + OBB_CLASS + V10_DETECT_CLASS)):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
-            s = 640  # 2x min stride
+        if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
+            s = 256  # 2x min stride
             m.inplace = self.inplace
 
             def _forward(x):
@@ -383,7 +383,7 @@ class DetectionModel(BaseModel):
                     return self.forward(x)[:3]
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] if isinstance(m, SEGMENT_CLASS + POSE_CLASS + OBB_CLASS) else self.forward(x)
+                return self.forward(x)[0] 
 
             try:
                 m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(2, ch, s, s))])  # forward
