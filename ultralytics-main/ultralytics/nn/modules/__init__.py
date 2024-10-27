@@ -16,7 +16,6 @@ Example:
     os.system(f"onnxslim {f} {f} && open {f}")  # pip install onnxslim
     ```
 """
-from ..extra_modules import *
 from .block import (
     C1,
     C2,
