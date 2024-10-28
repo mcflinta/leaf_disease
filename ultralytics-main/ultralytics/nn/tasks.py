@@ -8,6 +8,7 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
+
 from ultralytics.nn.modules import (
     AIFI,
     C1,
@@ -59,26 +60,6 @@ from ultralytics.nn.modules import (
     Segment,
     WorldDetect,
     v10Detect,
-    C3k2_EMSC,
-    C3k2_EMSC_SE,
-    C3k2_EMSC_ECA,
-    C2f_EMSC,
-    C2f_EMSC_SE,
-    C2f_EMSC_ECA,
-    C3_EMSC,
-    C3_EMSC_SE,
-    C3_EMSC_ECA,
-    C3k2_EMSCP,
-    C2f_EMSCP,
-    C2f_EMSCP_SE,
-    C2f_EMSCP_ECA,
-    C3k2_EMSCP_SE,
-    C3k2_EMSCP_ECA,
-    C3_EMSCP,
-    C3_EMSCP_SE,
-    C3_EMSCP_ECA,
-    EMSConv, 
-    EMSConvP,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -314,6 +295,7 @@ class BaseModel(nn.Module):
         """Initialize the loss criterion for the BaseModel."""
         raise NotImplementedError("compute_loss() needs to be implemented by task heads")
 
+
 class DetectionModel(BaseModel):
     """YOLOv8 detection model."""
 
@@ -341,7 +323,7 @@ class DetectionModel(BaseModel):
         # Build strides
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
-            s = 256 # 2x min stride
+            s = 256  # 2x min stride
             m.inplace = self.inplace
 
             def _forward(x):
@@ -948,7 +930,7 @@ def attempt_load_one_weight(weight, device=None, inplace=True, fuse=False):
     return model, ckpt
 
 
-def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, input_channels(3)
+def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     """Parse a YOLO model.yaml dictionary into a PyTorch model."""
     import ast
 
@@ -969,29 +951,17 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
             LOGGER.info(f"{colorstr('activation:')} {act}")  # print
 
     if verbose:
-        LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<60}{'arguments':<50}")
+        LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
     ch = [ch]
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
-    is_backbone = False
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
-        try:
-            if m == 'node_mode':
-                m = d[m]
-                if len(args) > 0:
-                    if args[0] == 'head_channel':
-                        args[0] = int(d[args[0]])
-            t = m
-            m = getattr(torch.nn, m[3:]) if 'nn.' in m else globals()[m]  # get module
-        except:
-            pass
+        m = getattr(torch.nn, m[3:]) if "nn." in m else globals()[m]  # get module
         for j, a in enumerate(args):
             if isinstance(a, str):
                 with contextlib.suppress(ValueError):
-                    try:
-                        args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
-                    except:
-                        args[j] = a
-        n = n_ = max(round(n * depth), 1)if n > 1 else n  # depth gain
+                    args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
+
+        n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
         if m in {
             Classify,
             Conv,
@@ -1026,27 +996,7 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
             PSA,
             SCDown,
             C2fCIB,
-            C3k2_EMSC,
-            C3k2_EMSC_ECA,
-            C3k2_EMSC_SE,
-            C2f_EMSC,
-            C2f_EMSC_SE,
-            C2f_EMSC_ECA,
-            C3_EMSC,
-            C3_EMSC_SE,
-            C3_EMSC_ECA,
-            C3k2_EMSCP,
-            C2f_EMSCP,
-            C2f_EMSCP_SE,
-            C2f_EMSCP_ECA,
-            C3k2_EMSCP_SE,
-            C3k2_EMSCP_ECA,
-            C3_EMSCP,
-            C3_EMSCP_SE,
-            C3_EMSCP_ECA
         }:
-            if args[0] == 'head_channel':
-                args[0] = d[args[0]]
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
@@ -1072,24 +1022,6 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
                 C2fPSA,
                 C2fCIB,
                 C2PSA,
-                C3k2_EMSC,
-                C3k2_EMSC_ECA,
-                C3k2_EMSC_SE,
-                C2f_EMSC,
-                C2f_EMSC_SE,
-                C2f_EMSC_ECA,
-                C3_EMSC,
-                C3_EMSC_SE,
-                C3_EMSC_ECA,
-                C3k2_EMSCP,
-                C2f_EMSCP,
-                C2f_EMSCP_SE,
-                C2f_EMSCP_ECA,
-                C3k2_EMSCP_SE,
-                C3k2_EMSCP_ECA,
-                C3_EMSCP,
-                C3_EMSCP_SE,
-                C3_EMSCP_ECA
             }:
                 args.insert(2, n)  # number of repeats
                 n = 1
@@ -1120,10 +1052,7 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
             c1 = ch[f]
             args = [c1, c2, *args[1:]]
         elif m is CBFuse:
-            c2 = ch[f[-1]]        
-        elif m in {EMSConv, EMSConvP}:
-            c2 = ch[f]
-            args = [c2, *args]
+            c2 = ch[f[-1]]
         else:
             c2 = ch[f]
 
