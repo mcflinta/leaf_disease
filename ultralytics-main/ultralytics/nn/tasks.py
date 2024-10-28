@@ -5,7 +5,7 @@ import pickle
 import types
 from copy import deepcopy
 from pathlib import Path
-
+import timm
 import torch
 import torch.nn as nn
 from ultralytics.nn.modules import (
@@ -363,7 +363,7 @@ class DetectionModel(BaseModel):
         # Build strides
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect
-            s = 640  # 2x min stride
+            s = 256 # 2x min stride
             m.inplace = self.inplace
 
             def _forward(x):
@@ -1146,6 +1146,14 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
         elif m in {EMSConv, EMSConvP}:
             c2 = ch[f]
             args = [c2, *args]
+        elif isinstance(m, str):
+            t = m
+            if len(args) == 2:        
+                m = timm.create_model(m, pretrained=args[0], pretrained_cfg_overlay={'file':args[1]}, features_only=True)
+            elif len(args) == 1:
+                m = timm.create_model(m, pretrained=args[0], features_only=True)
+            c2 = m.feature_info.channels()
+
         else:
             c2 = ch[f]
 
