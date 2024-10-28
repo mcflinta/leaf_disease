@@ -330,15 +330,16 @@ class SqueezeExcite(nn.Module):
         return x * self.sigmoid(scale)
 
 class GhostBottleneckSE(nn.Module):
-    """GhostBottleneck block with an optional Squeeze-and-Excitation (SE) block."""
-    
-    def __init__(self, c1, c2, k=3, s=1, se_ratio=0.25):
+    """GhostBottleneck block with fixed Squeeze-and-Excitation (SE) block."""
+
+    def __init__(self, c1, c2, k=3, s=1):
+        """Initialize GhostBottleneck with SE block fixed at reduction=16."""
         super(GhostBottleneckSE, self).__init__()
         c_ = c2 // 2
         self.conv = nn.Sequential(
             GhostConv(c1, c_, 1, 1),  # point-wise conv (pw)
             DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # depth-wise conv (dw)
-            SqueezeExcite(c_, reduction=int(1/se_ratio)) if se_ratio > 0 else nn.Identity(),  # SE block
+            SqueezeExcite(c_, reduction=16),  # SE block with reduction=16
             GhostConv(c_, c2, 1, 1, act=False),  # point-wise linear projection (pw-linear)
         )
         self.shortcut = (
@@ -346,7 +347,7 @@ class GhostBottleneckSE(nn.Module):
         )
 
     def forward(self, x):
-        """Applies GhostBottleneck block with optional SE and shortcut connection."""
+        """Applies GhostBottleneck block with fixed SE and shortcut connection."""
         return self.conv(x) + self.shortcut(x)
 
 class C3GhostSE(C3):
