@@ -27,6 +27,9 @@ __all__ = (
     "C3x",
     "C3TR",
     "C3Ghost",
+    "C3GhostSE",
+    "GhostBottleneckSE",
+    "SqueezeExcite",
     "GhostBottleneck",
     "Bottleneck",
     "BottleneckCSP",
@@ -308,6 +311,50 @@ class C3Ghost(C3):
         c_ = int(c2 * e)  # hidden channels
         self.m = nn.Sequential(*(GhostBottleneck(c_, c_) for _ in range(n)))
 
+class C3GhostSE(C3):
+    """C3 module with GhostBottleneck()."""
+
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):
+        """Initialize 'SPP' module with various pooling sizes for spatial pyramid pooling."""
+        super().__init__(c1, c2, n, shortcut, g, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.m = nn.Sequential(*(GhostBottleneckSE(c_, c_) for _ in range(n)))
+class SqueezeExcite(nn.Module):
+    """ Squeeze-and-Excitation block """
+    def __init__(self, ch, reduction=4):
+        super(SqueezeExcite, self).__init__()
+        self.fc1 = nn.Conv2d(ch, ch // reduction, 1, bias=True)
+        self.relu = nn.ReLU(inplace=True)
+        self.fc2 = nn.Conv2d(ch // reduction, ch, 1, bias=True)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        scale = x.mean((2, 3), keepdim=True)
+        scale = self.fc1(scale)
+        scale = self.relu(scale)
+        scale = self.fc2(scale)
+        return x * self.sigmoid(scale)
+
+class GhostBottleneckSE(nn.Module):
+    """Ghost Bottleneck with optional SE block"""
+
+    def __init__(self, c1, c2, k=3, s=1, se_ratio=0.25):
+        """Initializes GhostBottleneck module with optional SE."""
+        super().__init__()
+        c_ = c2 // 2
+        self.conv = nn.Sequential(
+            GhostConv(c1, c_, 1, 1),  # point-wise conv (pw)
+            DWConv(c_, c_, k, s, act=False) if s == 2 else nn.Identity(),  # depth-wise conv (dw)
+            SqueezeExcite(c_, reduction=16) if se_ratio > 0 else nn.Identity(),  # SE block
+            GhostConv(c_, c2, 1, 1, act=False),  # point-wise linear projection (pw-linear)
+        )
+        self.shortcut = (
+            nn.Sequential(DWConv(c1, c1, k, s, act=False), Conv(c1, c2, 1, 1, act=False)) if s == 2 else nn.Identity()
+        )
+
+    def forward(self, x):
+        """Applies main conv block with optional SE and shortcut connection."""
+        return self.conv(x) + self.shortcut(x)
 
 class GhostBottleneck(nn.Module):
     """Ghost Bottleneck https://github.com/huawei-noah/ghostnet."""

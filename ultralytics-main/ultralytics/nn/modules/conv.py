@@ -152,7 +152,21 @@ class Focus(nn.Module):
         """
         return self.conv(torch.cat((x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]), 1))
         # return self.conv(self.contract(x))
+class SqueezeExcite(nn.Module):
+    """ Squeeze-and-Excitation block """
+    def __init__(self, ch, reduction=4):
+        super(SqueezeExcite, self).__init__()
+        self.fc1 = nn.Conv2d(ch, ch // reduction, 1, bias=True)
+        self.relu = nn.ReLU(inplace=True)
+        self.fc2 = nn.Conv2d(ch // reduction, ch, 1, bias=True)
+        self.sigmoid = nn.Sigmoid()
 
+    def forward(self, x):
+        scale = x.mean((2, 3), keepdim=True)
+        scale = self.fc1(scale)
+        scale = self.relu(scale)
+        scale = self.fc2(scale)
+        return x * self.sigmoid(scale)
 
 class GhostConv(nn.Module):
     """Ghost Convolution https://github.com/huawei-noah/ghostnet."""
