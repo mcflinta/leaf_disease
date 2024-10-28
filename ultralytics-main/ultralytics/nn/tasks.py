@@ -109,7 +109,6 @@ except ImportError:
 
 
 class BaseModel(nn.Module):
-
     """The BaseModel class serves as a base class for all the models in the Ultralytics YOLO family."""
 
     def forward(self, x, *args, **kwargs):
@@ -167,20 +166,8 @@ class BaseModel(nn.Module):
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
                 self._profile_one_layer(m, x, dt)
-            if hasattr(m, 'backbone'):
-                x = m(x)
-                for _ in range(5 - len(x)):
-                    x.insert(0, None)
-                for i_idx, i in enumerate(x):
-                    if i_idx in self.save:
-                        y.append(i)
-                    else:
-                        y.append(None)
-                # print(f'layer id:{idx:>2} {m.type:>50} output shape:{", ".join([str(x_.size()) for x_ in x if x_ is not None])}')
-                x = x[-1]
-            else:
-                x = m(x)  # run
-                y.append(x if m.i in self.save else None)  # save output
+            x = m(x)  # run
+            y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
             if embed and m.i in embed:
@@ -210,16 +197,7 @@ class BaseModel(nn.Module):
         Returns:
             None
         """
-        if type(x) is tuple:
-            x = list(x)
         c = m == self.model[-1] and isinstance(x, list)  # is final layer list, copy input as inplace fix
-        if type(x) is list:
-            try:
-                bs = x[0].size(0)
-            except:
-                bs = x[0][0].size(0)
-        else:
-            bs = x.size(0)
         flops = thop.profile(m, inputs=[x.copy() if c else x], verbose=False)[0] / 1e9 * 2 if thop else 0  # GFLOPs
         t = time_sync()
         for _ in range(10):
