@@ -5,7 +5,7 @@ import pickle
 import types
 from copy import deepcopy
 from pathlib import Path
-import timm
+
 import torch
 import torch.nn as nn
 from ultralytics.nn.modules import (
@@ -181,12 +181,12 @@ class BaseModel(nn.Module):
             else:
                 x = m(x)  # run
                 y.append(x if m.i in self.save else None)  # save output
-            if visualize:
-                feature_visualization(x, m.type, m.i, save_dir=visualize)
-            if embed and m.i in embed:
-                embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
-                if m.i == max(embed):
-                    return torch.unbind(torch.cat(embeddings, 1), dim=0)
+                if visualize:
+                    feature_visualization(x, m.type, m.i, save_dir=visualize)
+                if embed and m.i in embed:
+                    embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
+                    if m.i == max(embed):
+                        return torch.unbind(torch.cat(embeddings, 1), dim=0)
         return x
 
     def _predict_augment(self, x):
@@ -1146,14 +1146,6 @@ def parse_model(d, ch, verbose=True, warehouse_manager=None):  # model_dict, inp
         elif m in {EMSConv, EMSConvP}:
             c2 = ch[f]
             args = [c2, *args]
-        elif isinstance(m, str):
-            t = m
-            if len(args) == 2:        
-                m = timm.create_model(m, pretrained=args[0], pretrained_cfg_overlay={'file':args[1]}, features_only=True)
-            elif len(args) == 1:
-                m = timm.create_model(m, pretrained=args[0], features_only=True)
-            c2 = m.feature_info.channels()
-
         else:
             c2 = ch[f]
 
