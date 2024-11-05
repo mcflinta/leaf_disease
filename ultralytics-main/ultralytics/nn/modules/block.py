@@ -1534,3 +1534,48 @@ class BasicBlock_3x3_Reverse(nn.Module):
         else:
             return y
 
+
+class ConvBNAct(nn.Module):
+    """A Conv2d -> Batchnorm -> silu/leaky relu block"""
+
+    def __init__(
+            self,
+            in_channels,
+            out_channels,
+            ksize,
+            stride=1,
+            groups=1,
+            bias=False,
+            act='silu',
+            norm='bn',
+            reparam=False,
+    ):
+        super().__init__()
+        # same padding
+        pad = (ksize - 1) // 2
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=ksize,
+            stride=stride,
+            padding=pad,
+            groups=groups,
+            bias=bias,
+        )
+        if norm is not None:
+            self.bn = get_norm(norm, out_channels, inplace=True)
+        if act is not None:
+            self.act = get_activation(act, inplace=True)
+        self.with_norm = norm is not None
+        self.with_act = act is not None
+
+    def forward(self, x):
+        x = self.conv(x)
+        if self.with_norm:
+            x = self.bn(x)
+        if self.with_act:
+            x = self.act(x)
+        return x
+
+    def fuseforward(self, x):
+        return self.act(self.conv(x))
