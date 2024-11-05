@@ -57,6 +57,8 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
+    se_block, cbam_block, eca_block, CA_Block, CSPStage,
+                    BiLevelRoutingAttention,
 )
 from .conv import (
     CBAM,
@@ -161,4 +163,6 @@ __all__ = (
     "Attention",
     "PSA",
     "SqueezeExcitation",
+    'se_block','cbam_block','eca_block','BiLevelRoutingAttention','CA_Block',
+    'CSPStage',
 )
