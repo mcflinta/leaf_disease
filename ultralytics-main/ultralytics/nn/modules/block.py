@@ -1579,3 +1579,10 @@ class ConvBNAct(nn.Module):
 
     def fuseforward(self, x):
         return self.act(self.conv(x))
+    
+def get_norm(name, out_channels, inplace=True):
+    if name == 'bn':
+        module = nn.BatchNorm2d(out_channels)
+    else:
+        raise NotImplementedError
+    return module
