@@ -1767,3 +1767,53 @@ class RepConv(nn.Module):
         if hasattr(self, 'id_tensor'):
             self.__delattr__('id_tensor')
         self.deploy = True
+
+class Bottleneck(nn.Module):
+    """Standard bottleneck."""
+
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):  # ch_in, ch_out, shortcut, groups, kernels, expand
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = Conv(c_, c2, k[1], 1, g=g)
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        """'forward()' applies the YOLOv5 FPN to input data."""
+        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+
+class BottleneckCSP(nn.Module):
+    """CSP Bottleneck https://github.com/WongKinYiu/CrossStagePartialNetworks."""
+
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
+        self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
+        self.cv4 = Conv(2 * c_, c2, 1, 1)
+        self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
+        self.act = nn.SiLU()
+        self.m = nn.Sequential(*(Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)))
+
+    def forward(self, x):
+        """Applies a CSP bottleneck with 3 convolutions."""
+        y1 = self.cv3(self.m(self.cv1(x)))
+        y2 = self.cv2(x)
+        return self.cv4(self.act(self.bn(torch.cat((y1, y2), 1))))
+
+def conv_bn(in_channels, out_channels, kernel_size, stride, padding, groups=1):
+    '''Basic cell for rep-style block, including conv and bn'''
+    result = nn.Sequential()
+    result.add_module(
+        'conv',
+        nn.Conv2d(in_channels=in_channels,
+                  out_channels=out_channels,
+                  kernel_size=kernel_size,
+                  stride=stride,
+                  padding=padding,
+                  groups=groups,
+                  bias=False))
+    result.add_module('bn', nn.BatchNorm2d(num_features=out_channels))
+    return result
