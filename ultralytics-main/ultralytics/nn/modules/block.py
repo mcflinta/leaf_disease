@@ -54,6 +54,7 @@ __all__ = (
     "SCDown",
     'se_block','cbam_block','eca_block','CA_Block','BiLevelRoutingAttention',
     'CSPStage',
+    "C2fGhost",
 )
 
 
@@ -1817,3 +1818,23 @@ def conv_bn(in_channels, out_channels, kernel_size, stride, padding, groups=1):
                   bias=False))
     result.add_module('bn', nn.BatchNorm2d(num_features=out_channels))
     return result
+
+class C2fGhost(C2f):
+    """C2fGhost module that uses GhostBottleneck instead of standard Bottleneck blocks."""
+    
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        """
+        Initializes C2fGhost with GhostBottleneck blocks.
+        
+        Args:
+            c1: Số kênh đầu vào.
+            c2: Số kênh đầu ra.
+            n: Số lượng khối GhostBottleneck.
+            shortcut: Cho phép skip connection hay không.
+            g: Nhóm cho lớp Conv.
+            e: Hệ số mở rộng số lượng kênh ẩn.
+        """
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.c = int(c2 * e)  # số lượng kênh ẩn
+        # Sử dụng GhostBottleneck thay vì Bottleneck
+        self.m = nn.ModuleList(GhostBottleneck(self.c, self.c) for _ in range(n))

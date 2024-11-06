@@ -63,6 +63,8 @@ from ultralytics.nn.modules import (
     v10Detect,
     SqueezeExcitation,
     cbam_block, eca_block, CA_Block, se_block,CSPStage,BiLevelRoutingAttention,
+    OAM,
+    C2fGhost,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -1002,6 +1004,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2fCIB,
             SqueezeExcitation,
             CSPStage,
+            C2fGhost,
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
@@ -1030,6 +1033,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 C2fCIB,
                 C2PSA,
                 CSPStage,
+                C2fGhost,
             }:
                 args.insert(2, n)  # number of repeats
                 n = 1
@@ -1037,6 +1041,11 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 args[3] = True
         elif m in (se_block,cbam_block,eca_block,CA_Block):
             args = [args[0]]
+        elif m is OAM:
+            c1, c2 = ch[f], args[0]
+            if c2 != nc:
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, *args[1:]]
         elif m is BiLevelRoutingAttention:
             c2 = ch[f]
             args = [c2, *args]

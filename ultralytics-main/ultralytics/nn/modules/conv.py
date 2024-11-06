@@ -21,6 +21,7 @@ __all__ = (
     "CBAM",
     "Concat",
     "RepConv",
+    "OAM",
 )
 from timm.layers.create_act import create_act_layer, get_act_layer
 
@@ -416,3 +417,67 @@ class SqueezeExcitation(nn.Module):
         if x_ge.shape[-1] != 1 or x_ge.shape[-2] != 1:
             x_ge = F.interpolate(x_ge, size=size)
         return x * self.gate(x_ge)
+    
+
+import torch
+import torch.nn as nn
+
+class OAM(nn.Module):
+    """Occlusion Perception Attention Module (OAM)"""
+
+    def __init__(self, channels, reduction=16):
+        """
+        Initializes the OAM module.
+
+        Args:
+            channels (int): Số lượng kênh của đầu vào.
+            reduction (int): Hệ số giảm số lượng kênh ẩn trong lớp tích chập 1D.
+        """
+        super(OAM, self).__init__()
+        
+        # Global Average Pooling (GAP)
+        self.gap = nn.AdaptiveAvgPool2d(1)  # Đầu ra kích thước (B, C, 1, 1)
+        
+        # Global Max Pooling (GMP)
+        self.gmp = nn.AdaptiveMaxPool2d(1)  # Đầu ra kích thước (B, C, 1, 1)
+        
+        # Tích chập 1D với độ rộng kernel là 1 để giảm số chiều xuống
+        self.conv1d = nn.Conv1d(channels, channels // reduction, kernel_size=1, stride=1, padding=0)
+        
+        # Tích chập 1D khác để đưa số kênh về lại số ban đầu
+        self.conv1d_out = nn.Conv1d(channels // reduction, channels, kernel_size=1, stride=1, padding=0)
+        
+        # Hàm kích hoạt sigmoid
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        """
+        Thực hiện lan truyền xuôi qua OAM module.
+
+        Args:
+            x (Tensor): Đầu vào với kích thước (B, C, H, W).
+        
+        Returns:
+            Tensor: Đầu ra sau khi áp dụng chú ý (B, C, H, W).
+        """
+        # Global Average Pooling và Global Max Pooling
+        gap = self.gap(x).squeeze(-1).squeeze(-1)  # Đầu ra (B, C)
+        gmp = self.gmp(x).squeeze(-1).squeeze(-1)  # Đầu ra (B, C)
+        
+        # Tổng hợp GAP và GMP
+        gap_gmp = gap + gmp  # Đầu ra (B, C)
+        
+        # Tích chập 1D đầu tiên
+        attn = self.conv1d(gap_gmp.unsqueeze(-1))  # Đầu ra (B, C//reduction, 1)
+        
+        # Tích chập 1D thứ hai
+        attn = self.conv1d_out(attn).squeeze(-1)  # Đầu ra (B, C)
+        
+        # Áp dụng hàm sigmoid
+        attn = self.sigmoid(attn).unsqueeze(-1).unsqueeze(-1)  # Đầu ra (B, C, 1, 1)
+        
+        # Nhân mặt nạ chú ý với đầu vào ban đầu
+        out = x * attn  # Đầu ra (B, C, H, W)
+        
+        return out
+

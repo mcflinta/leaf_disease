@@ -165,4 +165,7 @@ __all__ = (
     "SqueezeExcitation",
     'se_block','cbam_block','eca_block','BiLevelRoutingAttention','CA_Block',
     'CSPStage',
+    'C2fGhost',
+    'OAM',
 )
+
