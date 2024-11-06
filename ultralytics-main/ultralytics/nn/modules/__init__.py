@@ -59,6 +59,7 @@ from .block import (
     SCDown,
     se_block, cbam_block, eca_block, CA_Block, CSPStage,
                     BiLevelRoutingAttention,
+    C2fGhost,
 )
 from .conv import (
     CBAM,
