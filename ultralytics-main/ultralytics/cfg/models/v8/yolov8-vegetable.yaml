@@ -11,40 +11,36 @@ scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call 
   l: [1.00, 1.00, 512] # YOLOv8l summary: 365 layers, 43691520 parameters, 43691504 gradients, 165.7 GFLOPs
   x: [1.00, 1.25, 512] # YOLOv8x summary: 365 layers, 68229648 parameters, 68229632 gradients, 258.5 GFLOPs
 
-# Backbone
+# YOLOv8.0n backbone
 backbone:
   # [from, repeats, module, args]
-  - [-1, 1, Conv, [64, 3, 2]]         # 0: Conv với kích thước kernel 3x3, stride 2, đầu ra 320x320x32
-  - [-1, 1, Conv, [128, 3, 2]]        # 1: Conv với kích thước kernel 3x3, stride 2, đầu ra 160x160x64
-  - [-1, 3, C2f, [128, True]]         # 2: C2f, đầu ra 160x160x64
-  - [-1, 1, Conv, [256, 3, 2]]        # 3: Conv với kích thước kernel 3x3, stride 2, đầu ra 80x80x128
-  - [-1, 6, C2f, [256, True]]         # 4: C2f, đầu ra 80x80x128
-  - [-1, 1, Conv, [512, 3, 2]]        # 5: Conv với kích thước kernel 3x3, stride 2, đầu ra 40x40x256
-  - [-1, 9, C2f, [512, True]]         # 6: C2f, đầu ra 40x40x256
-  - [-1, 1, Conv, [1024, 3, 2]]       # 7: Conv với kích thước kernel 3x3, stride 2, đầu ra 20x20x512
-  - [-1, 3, C2f, [1024, True]]        # 8: C2f, đầu ra 20x20x512
-  - [-1, 1, SPPF, [1024, 5]]          # 9: SPPF với kích thước kernel 5x5, đầu ra 20x20x512
+  - [-1, 1, Conv, [64, 3, 2]] # 0-P1/2
+  - [-1, 1, Conv, [128, 3, 2]] # 1-P2/4
+  - [-1, 3, C2f, [128, True]]
+  - [-1, 1, Conv, [256, 3, 2]] # 3-P3/8
+  - [-1, 6, C2f, [256, True]]
+  - [-1, 1, Conv, [512, 3, 2]] # 5-P4/16
+  - [-1, 6, C2f, [512, True]]
+  - [-1, 1, Conv, [1024, 3, 2]] # 7-P5/32
+  - [-1, 3, C2f, [1024, True]]
+  - [-1, 1, SPPF, [1024, 5]] # 9
 
-# Neck
-neck:
-  - [-1, 1, C2f, [512]]                # 10: C2f, đầu ra 20x20x512
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 11: Upsample lên 40x40x256
-  - [[-1, 6], 1, Concat, [1]]         # 12: Concat với đặc trưng từ Backbone P4
-  - [-1, 1, OAM, []]                  # 13: OAM - module phát hiện đối tượng nhỏ
-  - [-1, 1, GhostConv, [256]]         # 14: GhostConv, đầu ra 40x40x256
-
-  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 15: Upsample lên 80x80x128
-  - [[-1, 4], 1, Concat, [1]]         # 16: Concat với đặc trưng từ Backbone P3
-  - [-1, 3, C2fGhost, [128]]          # 17: C2fGhost, đầu ra 80x80x128
-
-  - [-1, 1, Conv, [128, 3, 2]]        # 18: Conv với stride 2, đầu ra 40x40x256
-  - [[-1, 14], 1, Concat, [1]]        # 19: Concat với đặc trưng từ Neck
-  - [-1, 3, C2fGhost, [256]]          # 20: C2fGhost, đầu ra 40x40x256
-
-  - [-1, 1, Conv, [256, 3, 2]]        # 21: Conv với stride 2, đầu ra 20x20x512
-  - [[-1, 10], 1, Concat, [1]]        # 22: Concat với đặc trưng từ Backbone
-  - [-1, 3, C2fGhost, [512]]          # 23: C2fGhost, đầu ra 20x20x512
-
-# Head
+# YOLOv8.0n head
 head:
-  - [[17, 20, 23], 1, Detect, [nc]]   # Phát hiện trên ba lớp đặc trưng P3, P4, P5
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 6], 1, Concat, [1]] # cat backbone P4
+  - [-1, 3, C2fGhost, [512]] # 12
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 4], 1, Concat, [1]] # cat backbone P3
+  - [-1, 3, C2f, [256]] # 15 (P3/8-small)
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 12], 1, Concat, [1]] # cat head P4
+  - [-1, 3, C2f, [512]] # 18 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]
+  - [[-1, 9], 1, Concat, [1]] # cat head P5
+  - [-1, 3, C2f, [1024]] # 21 (P5/32-large)
+
+  - [[15, 18, 21], 1, Detect, [nc]] # Detect(P3, P4, P5)
