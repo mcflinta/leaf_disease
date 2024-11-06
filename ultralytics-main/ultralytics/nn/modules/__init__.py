@@ -75,6 +75,7 @@ from .conv import (
     RepConv,
     SpatialAttention,
     SqueezeExcitation,
+    OAM,
 )
 from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment, WorldDetect, v10Detect
 from .transformer import (
@@ -166,6 +167,5 @@ __all__ = (
     'se_block','cbam_block','eca_block','BiLevelRoutingAttention','CA_Block',
     'CSPStage',
     'C2fGhost',
-    'OAM',
 )
 
