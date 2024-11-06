@@ -30,7 +30,7 @@ neck:
   - [-1, 1, C2f, [512]]                # 10: C2f, đầu ra 20x20x512
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 11: Upsample lên 40x40x256
   - [[-1, 6], 1, Concat, [1]]         # 12: Concat với đặc trưng từ Backbone P4
-  - [-1, 1, OAM, [1024]]                  # 13: OAM - module phát hiện đối tượng nhỏ
+  - [-1, 1, OAM, []]                  # 13: OAM - module phát hiện đối tượng nhỏ
   - [-1, 1, GhostConv, [256]]         # 14: GhostConv, đầu ra 40x40x256
 
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 15: Upsample lên 80x80x128
