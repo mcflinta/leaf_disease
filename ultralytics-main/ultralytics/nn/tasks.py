@@ -1041,10 +1041,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 args[3] = True
         elif m in (se_block,cbam_block,eca_block,CA_Block):
             args = [args[0]]
-        elif m is OAM:
-            c1, c2 = ch[f], args[0]
-            if c2 != nc:
-                c2 = make_divisible(min(c2, max_channels) * width, 8)
+        # elif m is OAM:
+        #     c1, c2 = ch[f], args[0]
+        #     if c2 != nc:
+        #         c2 = make_divisible(min(c2, max_channels) * width, 8)
             args = [c1, *args[1:]]
         elif m is BiLevelRoutingAttention:
             c2 = ch[f]
