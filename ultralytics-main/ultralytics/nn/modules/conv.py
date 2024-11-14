@@ -21,9 +21,8 @@ __all__ = (
     "CBAM",
     "Concat",
     "RepConv",
-    "OAM",
 )
-from timm.layers.create_act import create_act_layer, get_act_layer
+
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
     """Pad to 'same' shape outputs."""
@@ -153,21 +152,7 @@ class Focus(nn.Module):
         """
         return self.conv(torch.cat((x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]), 1))
         # return self.conv(self.contract(x))
-class SqueezeExcite(nn.Module):
-    """ Squeeze-and-Excitation block """
-    def __init__(self, ch, reduction=4):
-        super(SqueezeExcite, self).__init__()
-        self.fc1 = nn.Conv2d(ch, ch // reduction, 1, bias=True)
-        self.relu = nn.ReLU(inplace=True)
-        self.fc2 = nn.Conv2d(ch // reduction, ch, 1, bias=True)
-        self.sigmoid = nn.Sigmoid()
 
-    def forward(self, x):
-        scale = x.mean((2, 3), keepdim=True)
-        scale = self.fc1(scale)
-        scale = self.relu(scale)
-        scale = self.fc2(scale)
-        return x * self.sigmoid(scale)
 
 class GhostConv(nn.Module):
     """Ghost Convolution https://github.com/huawei-noah/ghostnet."""
@@ -345,139 +330,3 @@ class Concat(nn.Module):
     def forward(self, x):
         """Forward pass for the YOLOv8 mask Proto module."""
         return torch.cat(x, self.d)
-
-
-import torch.nn.functional as F
-from timm.layers.create_act import create_act_layer, get_act_layer
-from timm.layers.helpers import make_divisible
-from timm.layers.mlp import ConvMlp
-from timm.layers.norm import LayerNorm2d
-
-class SqueezeExcitation(nn.Module):
-    def __init__(
-            self, channels, feat_size=None, extra_params=False, extent=0, use_mlp=True,
-            rd_ratio=1. / 16, rd_channels=None, rd_divisor=1, add_maxpool=False,
-            act_layer=nn.ReLU, norm_layer=nn.BatchNorm2d, gate_layer='sigmoid'):
-        super(SqueezeExcitation, self).__init__()
-        self.add_maxpool = add_maxpool
-        act_layer = get_act_layer(act_layer)
-        self.extent = extent
-        if extra_params:
-            self.gather = nn.Sequential()
-            if extent == 0:
-                assert feat_size is not None, 'spatial feature size must be specified for global extent w/ params'
-                self.gather.add_module(
-                    'conv1', create_conv2d(channels, channels, kernel_size=feat_size, stride=1, depthwise=True))
-                if norm_layer:
-                    self.gather.add_module(f'norm1', nn.BatchNorm2d(channels))
-            else:
-                assert extent % 2 == 0
-                num_conv = int(math.log2(extent))
-                for i in range(num_conv):
-                    self.gather.add_module(
-                        f'conv{i + 1}',
-                        create_conv2d(channels, channels, kernel_size=3, stride=2, depthwise=True))
-                    if norm_layer:
-                        self.gather.add_module(f'norm{i + 1}', nn.BatchNorm2d(channels))
-                    if i != num_conv - 1:
-                        self.gather.add_module(f'act{i + 1}', act_layer(inplace=True))
-        else:
-            self.gather = None
-            if self.extent == 0:
-                self.gk = 0
-                self.gs = 0
-            else:
-                assert extent % 2 == 0
-                self.gk = self.extent * 2 - 1
-                self.gs = self.extent
-
-        if not rd_channels:
-            rd_channels = make_divisible(channels * rd_ratio, rd_divisor, round_limit=0.)
-        self.mlp = ConvMlp(channels, rd_channels, act_layer=act_layer) if use_mlp else nn.Identity()
-        self.gate = create_act_layer(gate_layer)
-
-    def forward(self, x):
-        size = x.shape[-2:]
-        if self.gather is not None:
-            x_ge = self.gather(x)
-        else:
-            if self.extent == 0:
-                # global extent
-                x_ge = x.mean(dim=(2, 3), keepdims=True)
-                if self.add_maxpool:
-                    # experimental codepath, may remove or change
-                    x_ge = 0.5 * x_ge + 0.5 * x.amax((2, 3), keepdim=True)
-            else:
-                x_ge = F.avg_pool2d(
-                    x, kernel_size=self.gk, stride=self.gs, padding=self.gk // 2, count_include_pad=False)
-                if self.add_maxpool:
-                    # experimental codepath, may remove or change
-                    x_ge = 0.5 * x_ge + 0.5 * F.max_pool2d(x, kernel_size=self.gk, stride=self.gs, padding=self.gk // 2)
-        x_ge = self.mlp(x_ge)
-        if x_ge.shape[-1] != 1 or x_ge.shape[-2] != 1:
-            x_ge = F.interpolate(x_ge, size=size)
-        return x * self.gate(x_ge)
-    
-
-import torch
-import torch.nn as nn
-
-class OAM(nn.Module):
-    """Occlusion Perception Attention Module (OAM)"""
-
-    def __init__(self, channels, reduction=16):
-        """
-        Initializes the OAM module.
-
-        Args:
-            channels (int): Số lượng kênh của đầu vào.
-            reduction (int): Hệ số giảm số lượng kênh ẩn trong lớp tích chập 1D.
-        """
-        super(OAM, self).__init__()
-        
-        # Global Average Pooling (GAP)
-        self.gap = nn.AdaptiveAvgPool2d(1)  # Đầu ra kích thước (B, C, 1, 1)
-        
-        # Global Max Pooling (GMP)
-        self.gmp = nn.AdaptiveMaxPool2d(1)  # Đầu ra kích thước (B, C, 1, 1)
-        
-        # Tích chập 1D với độ rộng kernel là 1 để giảm số chiều xuống
-        self.conv1d = nn.Conv1d(channels, channels // reduction, kernel_size=1, stride=1, padding=0)
-        
-        # Tích chập 1D khác để đưa số kênh về lại số ban đầu
-        self.conv1d_out = nn.Conv1d(channels // reduction, channels, kernel_size=1, stride=1, padding=0)
-        
-        # Hàm kích hoạt sigmoid
-        self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        """
-        Thực hiện lan truyền xuôi qua OAM module.
-
-        Args:
-            x (Tensor): Đầu vào với kích thước (B, C, H, W).
-        
-        Returns:
-            Tensor: Đầu ra sau khi áp dụng chú ý (B, C, H, W).
-        """
-        # Global Average Pooling và Global Max Pooling
-        gap = self.gap(x).squeeze(-1).squeeze(-1)  # Đầu ra (B, C)
-        gmp = self.gmp(x).squeeze(-1).squeeze(-1)  # Đầu ra (B, C)
-        
-        # Tổng hợp GAP và GMP
-        gap_gmp = gap + gmp  # Đầu ra (B, C)
-        
-        # Tích chập 1D đầu tiên
-        attn = self.conv1d(gap_gmp.unsqueeze(-1))  # Đầu ra (B, C//reduction, 1)
-        
-        # Tích chập 1D thứ hai
-        attn = self.conv1d_out(attn).squeeze(-1)  # Đầu ra (B, C)
-        
-        # Áp dụng hàm sigmoid
-        attn = self.sigmoid(attn).unsqueeze(-1).unsqueeze(-1)  # Đầu ra (B, C, 1, 1)
-        
-        # Nhân mặt nạ chú ý với đầu vào ban đầu
-        out = x * attn  # Đầu ra (B, C, H, W)
-        
-        return out
-
