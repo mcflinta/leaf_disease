@@ -49,6 +49,8 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
+    "C2fWithHomoFormer",
+    "LightweightHomoFormer"
 )
 
 
@@ -1107,3 +1109,157 @@ class SCDown(nn.Module):
     def forward(self, x):
         """Applies convolution and downsampling to the input tensor in the SCDown module."""
         return self.cv2(self.cv1(x))
+
+
+import torch
+import torch.nn as nn
+
+class LightweightHomoFormer(nn.Module):
+    """
+    Lightweight HomoFormer for feature enhancement in YOLOv8.
+    Designed for efficient computation with minimal impact on FPS.
+    """
+    def __init__(self, img_size, embed_dim=64, depths=[1], num_heads=[2], win_size=4, mlp_ratio=2.0, 
+                 drop_rate=0.1, attn_drop_rate=0.1):
+        """
+        Args:
+            img_size (int): Input token size (assumed square after reduction).
+            embed_dim (int): Embedding dimension for Transformer.
+            depths (list): Number of Transformer layers per stage.
+            num_heads (list): Number of attention heads.
+            win_size (int): Window size for attention.
+            mlp_ratio (float): MLP expansion ratio.
+            drop_rate (float): Dropout rate for MLP.
+            attn_drop_rate (float): Dropout rate for attention.
+        """
+        super().__init__()
+        
+        self.img_size = img_size
+        self.embed_dim = embed_dim
+        self.depths = depths
+        self.num_heads = num_heads
+
+        # Transformer Encoder Layers
+        self.encoder = nn.ModuleList([
+            nn.TransformerEncoderLayer(
+                d_model=embed_dim,
+                nhead=num_heads[0],  # Single stage configuration
+                dim_feedforward=int(embed_dim * mlp_ratio),
+                dropout=drop_rate,
+                activation="relu"
+            ) for _ in range(depths[0])
+        ])
+
+        # Positional Encoding
+        self.pos_embedding = nn.Parameter(torch.zeros(1, img_size * img_size, embed_dim))
+        nn.init.trunc_normal_(self.pos_embedding, std=0.02)
+
+    def forward(self, x):
+        """
+        Forward pass for LightweightHomoFormer.
+        Args:
+            x (Tensor): Input tensor of shape [B, C, H, W].
+        Returns:
+            Tensor: Enhanced features of shape [B, C, H, W].
+        """
+        B, C, H, W = x.size()
+
+        # Flatten spatial dimensions to tokens
+        x = x.view(B, C, -1).permute(0, 2, 1)  # [B, C, H, W] -> [B, N, C]
+        x = x + self.pos_embedding[:, :H * W, :]  # Add positional encoding
+
+        # Apply Transformer Encoder Layers
+        for layer in self.encoder:
+            x = layer(x)
+
+        # Reshape back to [B, C, H, W]
+        x = x.permute(0, 2, 1).view(B, C, H, W)
+        return x
+
+
+class C2fWithHomoFormer(nn.Module):
+    """
+    C2f with integrated LightweightHomoFormer for enhanced feature learning.
+    """
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, 
+                 homoformer_dim=64, homoformer_depth=1, homoformer_heads=2):
+        """
+        Args:
+            c1 (int): Input channels.
+            c2 (int): Output channels.
+            n (int): Number of Bottleneck blocks.
+            shortcut (bool): Whether to use shortcut connections.
+            g (int): Number of groups in convolution.
+            e (float): Expansion ratio.
+            homoformer_dim (int): Embedding dimension for LightweightHomoFormer.
+            homoformer_depth (int): Number of Transformer layers in LightweightHomoFormer.
+            homoformer_heads (int): Number of attention heads in LightweightHomoFormer.
+        """
+        super().__init__()
+        self.c = int(c2 * e)  # Hidden channels
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)  # First convolution
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # Output projection
+        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+
+        # Add LightweightHomoFormer
+        self.homoformer = LightweightHomoFormer(
+            img_size=1,  # Assumes token-based processing
+            embed_dim=homoformer_dim,
+            depths=[homoformer_depth],
+            num_heads=[homoformer_heads],
+            win_size=4  # Optimized for small token count
+        )
+
+    def forward(self, x):
+        """
+        Forward pass for C2fWithHomoFormer.
+        Args:
+            x (Tensor): Input tensor of shape [B, C, H, W].
+        Returns:
+            Tensor: Enhanced features of shape [B, C, H, W].
+        """
+        y = list(self.cv1(x).chunk(2, 1))  # Split input into two chunks
+        y.extend(m(y[-1]) for m in self.m)  # Process each Bottleneck block
+        y_cat = torch.cat(y, 1)  # Concatenate features
+        y_enhanced = self.homoformer(y_cat)  # Enhance with LightweightHomoFormer
+        return self.cv2(y_enhanced)  # Final projection
+
+# class C2fWithHomoFormer(C2f):
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, 
+#                  homoformer_dim=64, homoformer_depth=1, homoformer_heads=2):
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         self.homoformer = LightweightHomoFormer(
+#             img_size=1,  # Assuming token-based
+#             embed_dim=homoformer_dim,
+#             depths=[homoformer_depth],
+#             num_heads=[homoformer_heads],
+#             win_size=4,  # Minimize token count
+#         )
+
+#     def forward(self, x):
+#         y = list(self.cv1(x).chunk(2, 1))
+#         y.extend(m(y[-1]) for m in self.m)
+#         y_cat = torch.cat(y, 1)
+#         y_enhanced = self.homoformer(y_cat)
+#         return self.cv2(y_enhanced)
+
+
+
+# class C2fWithHomoFormer(C2f):
+#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, 
+#                  homoformer_dim=64, homoformer_depth=1, homoformer_heads=2):
+#         super().__init__(c1, c2, n, shortcut, g, e)  # Initialize C2f
+#         self.homoformer = LightweightHomoFormer(
+#             img_size=1,  # Giả định đặc trưng đã được giảm kích thước
+#             embed_dim=homoformer_dim,
+#             depths=[homoformer_depth],
+#             num_heads=[homoformer_heads],
+#             win_size=4,  # Giảm số lượng token
+#         )
+
+#     def forward(self, x):
+#         y = list(self.cv1(x).chunk(2, 1))  # Split
+#         y.extend(m(y[-1]) for m in self.m)  # Apply Bottleneck
+#         y_cat = torch.cat(y, 1)  # Concatenate
+#         y_enhanced = self.homoformer(y_cat)  # Enhance
+#         return self.cv2(y_enhanced)  # Final output
