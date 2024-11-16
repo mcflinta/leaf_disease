@@ -1112,7 +1112,7 @@ class SCDown(nn.Module):
         """Applies convolution and downsampling to the input tensor in the SCDown module."""
         return self.cv2(self.cv1(x))
 
-
+from einops import rearrange
 class EMSConv(nn.Module):
     # Efficient Multi-Scale Conv
     def __init__(self, channel=256, kernels=[3, 5]):
