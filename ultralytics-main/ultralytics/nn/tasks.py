@@ -66,6 +66,8 @@ from ultralytics.nn.modules import (
     EMSConv,
     EMSConvP,
     C3k2_EMSCP,
+    ShadowOcclusionAttention,
+
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -1043,6 +1045,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 legacy = False
                 if scale in "mlx":
                     args[3] = True
+        elif m in {ShadowOcclusionAttention}:
+            c1 = ch[f]     # Input channels
+            c2 = c1        # Output channels remain the same
+            args = [c1]    # Pass input channels to the module
         elif m in {EMSConv, EMSConvP}:
             c2 = ch[f]
             args = [c2, *args]
@@ -1089,6 +1095,142 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             ch = []
         ch.append(c2)
     return nn.Sequential(*layers), sorted(save)
+
+# def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
+#     """Parse a YOLO model.yaml dictionary into a PyTorch model."""
+#     import ast
+#     import torch.nn as nn
+
+#     # Ensure that the ShadowOcclusionAttention module is imported or defined
+#     # from your_custom_module_file import ShadowOcclusionAttention
+
+#     # Create a dictionary for custom modules
+#     custom_modules = {
+#         'ShadowOcclusionAttention': ShadowOcclusionAttention,
+#         # Add other custom modules here if necessary
+#     }
+
+#     # Args
+#     legacy = True  # backward compatibility for older models
+#     max_channels = float("inf")
+#     nc, act, scales = (d.get(x) for x in ("nc", "activation", "scales"))
+#     depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
+#     if scales:
+#         scale = d.get("scale")
+#         if not scale:
+#             scale = tuple(scales.keys())[0]
+#             LOGGER.warning(f"WARNING ⚠️ no model scale passed. Assuming scale='{scale}'.")
+#         depth, width, max_channels = scales[scale]
+
+#     if act:
+#         Conv.default_act = eval(act)  # redefine default activation, e.g., Conv.default_act = nn.SiLU()
+#         if verbose:
+#             LOGGER.info(f"{colorstr('activation:')} {act}")  # print activation function used
+
+#     if verbose:
+#         LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
+#     ch = [ch]  # list of input channels
+#     layers, save, c2 = [], [], ch[-1]  # layers, savelist, output channels
+
+#     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args
+#         # Retrieve the module class
+#         if "nn." in m:
+#             m = getattr(torch.nn, m[3:])
+#         elif m in globals():
+#             m = globals()[m]
+#         elif m in custom_modules:
+#             m = custom_modules[m]
+#         else:
+#             raise ValueError(f"Module {m} not found in globals or custom_modules.")
+
+#         # Parse arguments
+#         for j, a in enumerate(args):
+#             if isinstance(a, str):
+#                 try:
+#                     args[j] = locals()[a] if a in locals() else ast.literal_eval(a)
+#                 except ValueError:
+#                     pass
+
+#         n = n_ = max(round(n * depth), 1) if n > 1 else n  # adjust for depth gain
+
+#         # Handle module-specific parameters and output channels
+#         if m is ShadowOcclusionAttention:
+#             c1 = ch[f]     # input channels from previous layer
+#             c2 = c1        # output channels remain the same
+#             args = [c1]    # pass input channels as an argument
+#         elif m in {
+#             Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF,
+#             C2fPSA, C2PSA, DWConv, Focus, BottleneckCSP, C1, C2, C2f, C3k2, RepNCSPELAN4,
+#             ELAN1, ADown, AConv, SPPELAN, C2fAttn, C3, C3TR, C3Ghost, nn.ConvTranspose2d,
+#             DWConvTranspose2d, C3x, RepC3, PSA, SCDown, C2fCIB, C2f_EMSC, C2f_EMSCP,
+#             C3k2_EMSCP,
+#         }:
+#             c1, c2 = ch[f], args[0]
+#             if c2 != nc:  # if c2 not equal to number of classes (for Classify output)
+#                 c2 = make_divisible(min(c2, max_channels) * width, 8)
+#             if m is C2fAttn:
+#                 args[1] = make_divisible(min(args[1], max_channels // 2) * width, 8)  # embed channels
+#                 args[2] = int(max(round(min(args[2], max_channels // 2 // 32)) * width, 1) if args[2] > 1 else args[2])  # num heads
+
+#             args = [c1, c2, *args[1:]]
+#             if m in {
+#                 BottleneckCSP, C1, C2, C2f, C3k2, C2fAttn, C3, C3TR, C3Ghost, C3x,
+#                 RepC3, C2fPSA, C2fCIB, C2PSA, C2f_EMSC, C2f_EMSCP, C3k2_EMSCP,
+#             }:
+#                 args.insert(2, n)  # insert number of repeats
+#                 n = 1
+#             if m is C3k2:
+#                 legacy = False
+#                 if scale in "mlx":
+#                     args[3] = True
+#         elif m in {EMSConv, EMSConvP}:
+#             c2 = ch[f]
+#             args = [c2, *args]
+#         elif m is AIFI:
+#             args = [ch[f], *args]
+#         elif m in {HGStem, HGBlock}:
+#             c1, cm, c2 = ch[f], args[0], args[1]
+#             args = [c1, cm, c2, *args[2:]]
+#             if m is HGBlock:
+#                 args.insert(4, n)  # insert number of repeats
+#                 n = 1
+#         elif m is ResNetLayer:
+#             c2 = args[1] if args[3] else args[1] * 4
+#         elif m is nn.BatchNorm2d:
+#             args = [ch[f]]
+#         elif m is Concat:
+#             c2 = sum(ch[x] for x in f)
+#         elif m in {Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect}:
+#             args.append([ch[x] for x in f])
+#             if m is Segment:
+#                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
+#             if m in {Detect, Segment, Pose, OBB}:
+#                 m.legacy = legacy
+#         elif m is RTDETRDecoder:
+#             args.insert(1, [ch[x] for x in f])
+#         elif m is CBLinear:
+#             c2 = args[0]
+#             c1 = ch[f]
+#             args = [c1, c2, *args[1:]]
+#         elif m is CBFuse:
+#             c2 = ch[f[-1]]
+#         else:
+#             c2 = ch[f]  # default output channels
+
+#         # Instantiate the module
+#         m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)
+#         t = str(m)[8:-2].replace("__main__.", "")  # module type as string
+#         m_.np = sum(x.numel() for x in m_.parameters())  # number of parameters
+#         m_.i, m_.f, m_.type = i, f, t  # attach metadata
+#         if verbose:
+#             LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m_.np:10.0f}  {t:<45}{str(args):<30}")  # print module info
+#         save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # update save list
+#         layers.append(m_)
+#         if i == 0:
+#             ch = []
+#         ch.append(c2)  # update channel list
+
+#     return nn.Sequential(*layers), sorted(save)
 
 
 def yaml_model_load(path):

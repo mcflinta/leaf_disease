@@ -52,7 +52,8 @@ __all__ = (
     "EMSConv",
     "EMSConvP",
     'C2f_EMSC',
-    'C2f_EMCSP'
+    'C2f_EMCSP',
+    'ShadowOcclusionAttention',
 )
 
 
@@ -1212,3 +1213,31 @@ class C3k2_EMSCP(C3k2):
             C3k_EMSCP(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSCP(self.c, self.c, shortcut, g)
             for _ in range(n)
         ])
+
+class ShadowOcclusionAttention(nn.Module):
+    def __init__(self, channels):
+        super(ShadowOcclusionAttention, self).__init__()
+        self.channel_att = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(channels, channels // 8, 1, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels // 8, channels, 1, bias=False),
+            nn.Sigmoid()
+        )
+        self.spatial_att = nn.Sequential(
+            nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        # Channel Attention
+        ca = self.channel_att(x)
+        x = x * ca
+        # Spatial Attention
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        sa = torch.cat([avg_out, max_out], dim=1)
+        sa = self.spatial_att(sa)
+        x = x * sa
+        return x
+
