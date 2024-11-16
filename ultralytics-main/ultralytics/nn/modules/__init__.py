@@ -56,8 +56,11 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
-    C2fWithHomoFormer,
-    LightweightHomoFormer,
+    EMSConv,
+    EMSConvP,
+    C2f_EMSCP,
+    C2f_EMSC,
+    C3k2_EMSCP,
 )
 from .conv import (
     CBAM,
@@ -158,6 +161,9 @@ __all__ = (
     "C2fCIB",
     "Attention",
     "PSA",
-    'C2fWithHomoFormer',
-    'LightweightHomoFormer',
+    'C2f_EMSC',
+    'C2f_EMSCP',
+    'EMSConv',
+    'EMSConvP',
+    'C3k2_EMSCP'
 )

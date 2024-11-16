@@ -49,8 +49,10 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
-    "C2fWithHomoFormer",
-    "LightweightHomoFormer"
+    "EMSConv",
+    "EMSConvP",
+    'C2f_EMSC',
+    'C2f_EMCSP'
 )
 
 
@@ -1111,155 +1113,79 @@ class SCDown(nn.Module):
         return self.cv2(self.cv1(x))
 
 
-import torch
-import torch.nn as nn
-
-class LightweightHomoFormer(nn.Module):
-    """
-    Lightweight HomoFormer for feature enhancement in YOLOv8.
-    Designed for efficient computation with minimal impact on FPS.
-    """
-    def __init__(self, img_size, embed_dim=64, depths=[1], num_heads=[2], win_size=4, mlp_ratio=2.0, 
-                 drop_rate=0.1, attn_drop_rate=0.1):
-        """
-        Args:
-            img_size (int): Input token size (assumed square after reduction).
-            embed_dim (int): Embedding dimension for Transformer.
-            depths (list): Number of Transformer layers per stage.
-            num_heads (list): Number of attention heads.
-            win_size (int): Window size for attention.
-            mlp_ratio (float): MLP expansion ratio.
-            drop_rate (float): Dropout rate for MLP.
-            attn_drop_rate (float): Dropout rate for attention.
-        """
+class EMSConv(nn.Module):
+    # Efficient Multi-Scale Conv
+    def __init__(self, channel=256, kernels=[3, 5]):
         super().__init__()
+        self.groups = len(kernels)
+        min_ch = channel // 4
+        assert min_ch >= 16, f'channel must Greater than {64}, but {channel}'
         
-        self.img_size = img_size
-        self.embed_dim = embed_dim
-        self.depths = depths
-        self.num_heads = num_heads
-
-        # Transformer Encoder Layers
-        self.encoder = nn.ModuleList([
-            nn.TransformerEncoderLayer(
-                d_model=embed_dim,
-                nhead=num_heads[0],  # Single stage configuration
-                dim_feedforward=int(embed_dim * mlp_ratio),
-                dropout=drop_rate,
-                activation="relu"
-            ) for _ in range(depths[0])
-        ])
-
-        # Positional Encoding
-        self.pos_embedding = nn.Parameter(torch.zeros(1, img_size * img_size, embed_dim))
-        nn.init.trunc_normal_(self.pos_embedding, std=0.02)
-
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        
     def forward(self, x):
-        """
-        Forward pass for LightweightHomoFormer.
-        Args:
-            x (Tensor): Input tensor of shape [B, C, H, W].
-        Returns:
-            Tensor: Enhanced features of shape [B, C, H, W].
-        """
-        B, C, H, W = x.size()
-
-        # Flatten spatial dimensions to tokens
-        x = x.view(B, C, -1).permute(0, 2, 1)  # [B, C, H, W] -> [B, N, C]
-        x = x + self.pos_embedding[:, :H * W, :]  # Add positional encoding
-
-        # Apply Transformer Encoder Layers
-        for layer in self.encoder:
-            x = layer(x)
-
-        # Reshape back to [B, C, H, W]
-        x = x.permute(0, 2, 1).view(B, C, H, W)
+        _, c, _, _ = x.size()
+        x_cheap, x_group = torch.split(x, [c // 2, c // 2], dim=1)
+        x_group = rearrange(x_group, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_group = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_group = rearrange(x_group, 'g bs ch h w -> bs (g ch) h w')
+        x = torch.cat([x_cheap, x_group], dim=1)
+        x = self.conv_1x1(x)
+        
         return x
 
-
-class C2fWithHomoFormer(nn.Module):
-    """
-    C2f with integrated LightweightHomoFormer for enhanced feature learning.
-    """
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, 
-                 homoformer_dim=64, homoformer_depth=1, homoformer_heads=2):
-        """
-        Args:
-            c1 (int): Input channels.
-            c2 (int): Output channels.
-            n (int): Number of Bottleneck blocks.
-            shortcut (bool): Whether to use shortcut connections.
-            g (int): Number of groups in convolution.
-            e (float): Expansion ratio.
-            homoformer_dim (int): Embedding dimension for LightweightHomoFormer.
-            homoformer_depth (int): Number of Transformer layers in LightweightHomoFormer.
-            homoformer_heads (int): Number of attention heads in LightweightHomoFormer.
-        """
+class EMSConvP(nn.Module):
+    # Efficient Multi-Scale Conv Plus
+    def __init__(self, channel=256, kernels=[1, 3, 5, 7]):
         super().__init__()
-        self.c = int(c2 * e)  # Hidden channels
-        self.cv1 = Conv(c1, 2 * self.c, 1, 1)  # First convolution
-        self.cv2 = Conv((2 + n) * self.c, c2, 1)  # Output projection
-        self.m = nn.ModuleList(Bottleneck(self.c, self.c, shortcut, g, k=((3, 3), (3, 3)), e=1.0) for _ in range(n))
+        self.groups = len(kernels)
+        min_ch = channel // self.groups
+        assert min_ch >= 16, f'channel must Greater than {16 * self.groups}, but {channel}'
+        
+        self.convs = nn.ModuleList([])
+        for ks in kernels:
+            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
+        self.conv_1x1 = Conv(channel, channel, k=1)
+        
+    def forward(self, x):
+        x_group = rearrange(x, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
+        x_convs = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
+        x_convs = rearrange(x_convs, 'g bs ch h w -> bs (g ch) h w')
+        x_convs = self.conv_1x1(x_convs)
+        
+        return x_convs
 
-        # Add LightweightHomoFormer
-        self.homoformer = LightweightHomoFormer(
-            img_size=1,  # Assumes token-based processing
-            embed_dim=homoformer_dim,
-            depths=[homoformer_depth],
-            num_heads=[homoformer_heads],
-            win_size=4  # Optimized for small token count
+class Bottleneck_EMSC(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConv(c2)
+
+class C2f_EMSC(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class Bottleneck_EMSCP(Bottleneck):
+    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
+        super().__init__(c1, c2, shortcut, g, k, e)
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, k[0], 1)
+        self.cv2 = EMSConvP(c2)
+
+class C2f_EMSCP(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Bottleneck_EMSCP(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
+
+class C3k2_EMSCP(C3k2):
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(
+            C3k(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSCP(self.c, self.c, shortcut, g) for _ in range(n)
         )
 
-    def forward(self, x):
-        """
-        Forward pass for C2fWithHomoFormer.
-        Args:
-            x (Tensor): Input tensor of shape [B, C, H, W].
-        Returns:
-            Tensor: Enhanced features of shape [B, C, H, W].
-        """
-        y = list(self.cv1(x).chunk(2, 1))  # Split input into two chunks
-        y.extend(m(y[-1]) for m in self.m)  # Process each Bottleneck block
-        y_cat = torch.cat(y, 1)  # Concatenate features
-        y_enhanced = self.homoformer(y_cat)  # Enhance with LightweightHomoFormer
-        return self.cv2(y_enhanced)  # Final projection
-
-# class C2fWithHomoFormer(C2f):
-#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, 
-#                  homoformer_dim=64, homoformer_depth=1, homoformer_heads=2):
-#         super().__init__(c1, c2, n, shortcut, g, e)
-#         self.homoformer = LightweightHomoFormer(
-#             img_size=1,  # Assuming token-based
-#             embed_dim=homoformer_dim,
-#             depths=[homoformer_depth],
-#             num_heads=[homoformer_heads],
-#             win_size=4,  # Minimize token count
-#         )
-
-#     def forward(self, x):
-#         y = list(self.cv1(x).chunk(2, 1))
-#         y.extend(m(y[-1]) for m in self.m)
-#         y_cat = torch.cat(y, 1)
-#         y_enhanced = self.homoformer(y_cat)
-#         return self.cv2(y_enhanced)
-
-
-
-# class C2fWithHomoFormer(C2f):
-#     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, 
-#                  homoformer_dim=64, homoformer_depth=1, homoformer_heads=2):
-#         super().__init__(c1, c2, n, shortcut, g, e)  # Initialize C2f
-#         self.homoformer = LightweightHomoFormer(
-#             img_size=1,  # Giả định đặc trưng đã được giảm kích thước
-#             embed_dim=homoformer_dim,
-#             depths=[homoformer_depth],
-#             num_heads=[homoformer_heads],
-#             win_size=4,  # Giảm số lượng token
-#         )
-
-#     def forward(self, x):
-#         y = list(self.cv1(x).chunk(2, 1))  # Split
-#         y.extend(m(y[-1]) for m in self.m)  # Apply Bottleneck
-#         y_cat = torch.cat(y, 1)  # Concatenate
-#         y_enhanced = self.homoformer(y_cat)  # Enhance
-#         return self.cv2(y_enhanced)  # Final output
