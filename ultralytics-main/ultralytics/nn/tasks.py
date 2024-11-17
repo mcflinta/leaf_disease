@@ -10,6 +10,7 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+
 from ultralytics.nn.modules import (
     AIFI,
     C1,
@@ -68,6 +69,10 @@ from ultralytics.nn.modules import (
     EMSConvP,
     C3k2_EMSCP,
     ShadowOcclusionAttention,
+    Partial_conv3,
+    C2f_Faster,
+    C2f_Faster_EMA,
+    EMA,
 
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
@@ -1011,7 +1016,11 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2f_EMSCP,
             C3k2_EMSCP,
             Bottleneck_EMSCP,
+            C2f_Faster,
+            C2f_Faster_EMA,
         }:
+            if args[0] == 'head_channel':
+                args[0] = d[args[0]]
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
@@ -1040,6 +1049,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 C2f_EMSC,
                 C2f_EMSCP,
                 C3k2_EMSCP,
+                C2f_Faster_EMA,
+                C2f_Faster,
             }:
                 args.insert(2, n)  # number of repeats
                 n = 1
@@ -1051,6 +1062,9 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c1 = ch[f]     # Input channels
             c2 = c1        # Output channels remain the same
             args = [c1]    # Pass input channels to the module
+        elif m in {EMA, Partial_conv3}:
+            c2 = ch[f]
+            args = [c2, *args]
         elif m in {EMSConv, EMSConvP}:
             c2 = ch[f]
             args = [c2, *args]

@@ -64,6 +64,9 @@ from .block import (
     C3k2_EMSCP,
     ShadowOcclusionAttention,
     ShadowOcclusionAttention,
+    Partial_conv3,
+    C2f_Faster,
+    C2f_Faster_EMA,
 )
 from .conv import (
     CBAM,
@@ -171,4 +174,10 @@ __all__ = (
     'EMSConvP',
     'C3k2_EMSCP',
     'ShadowOcclusionAttention',
+    'Partial_conv3',
+    'C2f_Faster',
+    'C2f_Faster_EMA',
+    'EMA',
 )
+
+from .attention import *
