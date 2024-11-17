@@ -54,6 +54,8 @@ __all__ = (
     'C2f_EMSC',
     'C2f_EMCSP',
     'ShadowOcclusionAttention',
+    'C3k2_EMSCP',
+    'C3k_EMSCP',
 )
 
 
