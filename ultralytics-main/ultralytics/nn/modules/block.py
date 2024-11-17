@@ -1178,7 +1178,7 @@ class Bottleneck_EMSCP(Bottleneck):
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, k[0], 1)
         self.cv2 = EMSConvP(c2)
-        self.add = shortcut and c1 == c2
+        # self.add = shortcut and c1 == c2
 
 class C2f_EMSCP(C2f):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
@@ -1194,7 +1194,7 @@ class C3k2_EMSCP(C2f):
             for _ in range(n)
         ])
 
-class C3k_EMSCP(C3k):
+class C3k_EMSCP(C3):
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, k=3):
         super().__init__(c1, c2, n, shortcut, g, e)
         c_ = int(c2 * e)  # Ensure hidden channels are integers
