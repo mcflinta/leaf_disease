@@ -36,6 +36,7 @@ from .block import (
     BNContrastiveHead,
     Bottleneck,
     BottleneckCSP,
+    Bottleneck_EMSCP,
     C2f,
     C2fAttn,
     C2fCIB,
@@ -131,6 +132,7 @@ __all__ = (
     "GhostBottleneck",
     "Bottleneck",
     "BottleneckCSP",
+    "Bottleneck_EMSCP"
     "Proto",
     "Detect",
     "Segment",

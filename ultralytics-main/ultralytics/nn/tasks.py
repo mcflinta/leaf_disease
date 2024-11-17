@@ -27,6 +27,7 @@ from ultralytics.nn.modules import (
     ADown,
     Bottleneck,
     BottleneckCSP,
+    Bottleneck_EMSCP,
     C2f,
     C2fAttn,
     C2fCIB,
@@ -1009,6 +1010,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             C2f_EMSC,
             C2f_EMSCP,
             C3k2_EMSCP,
+            Bottleneck_EMSCP,
         }:
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
