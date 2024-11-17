@@ -55,7 +55,6 @@ __all__ = (
     'C2f_EMCSP',
     'ShadowOcclusionAttention',
     'C3k2_EMSCP',
-    'C3k_EMSCP',
 )
 
 
@@ -1198,6 +1197,13 @@ class C2f_EMSCP(C2f):
 #         c_ = int(c2 * e)  # hidden channels
 #         self.m = nn.Sequential(*(Bottleneck_EMSCP(c_, c_, shortcut, g, k=(k, k), e=1.0) for _ in range(n)))
 
+class C3k2_EMSCP(C3k2):
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList([
+            C3k_EMSCP(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSCP(self.c, self.c, shortcut, g)
+            for _ in range(n)
+        ])
 
 class C3k_EMSCP(C3k):
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, k=3):
@@ -1208,13 +1214,23 @@ class C3k_EMSCP(C3k):
         self.m = nn.Sequential(
             *(Bottleneck_EMSCP(c_, c_, shortcut, g, k=kernel_size, e=1) for _ in range(n))
         )
-class C3k2_EMSCP(C3k2):
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList([
-            C3k_EMSCP(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSCP(self.c, self.c, shortcut, g)
-            for _ in range(n)
-        ])
+
+# class C3k_EMSCP(C3k):
+#     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, k=3):
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         c_ = int(c2 * e)  # Ensure hidden channels are integers
+#         # Ensure kernel size is a tuple of integers
+#         kernel_size = (int(k), int(k))
+#         self.m = nn.Sequential(
+#             *(Bottleneck_EMSCP(c_, c_, shortcut, g, k=kernel_size, e=1) for _ in range(n))
+#         )
+# class C3k2_EMSCP(C3k2):
+#     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+#         super().__init__(c1, c2, n, shortcut, g, e)
+#         self.m = nn.ModuleList([
+#             C3k_EMSCP(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSCP(self.c, self.c, shortcut, g)
+#             for _ in range(n)
+#         ])
 
 class ShadowOcclusionAttention(nn.Module):
     def __init__(self, channels):
