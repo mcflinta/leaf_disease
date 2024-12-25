@@ -1325,6 +1325,10 @@ class C2f_Faster(C2f):
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(Faster_Block(self.c, self.c) for _ in range(n))
 
+class C3k2_Faster(C3k2):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Faster_Block(self.c, self.c) for _ in range)
 class Faster_Block_EMA(nn.Module):
     def __init__(self,
                  inc,
@@ -1382,6 +1386,11 @@ class Faster_Block_EMA(nn.Module):
         return x
 
 class C2f_Faster_EMA(C2f):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__(c1, c2, n, shortcut, g, e)
+        self.m = nn.ModuleList(Faster_Block_EMA(self.c, self.c) for _ in range(n))
+
+class C3k2_Faster_EMA(C3k2):
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
         super().__init__(c1, c2, n, shortcut, g, e)
         self.m = nn.ModuleList(Faster_Block_EMA(self.c, self.c) for _ in range(n))
