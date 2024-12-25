@@ -73,6 +73,7 @@ from ultralytics.nn.modules import (
     C2f_Faster,
     C2f_Faster_EMA,
     EMA,
+    C3k2_Faster,
 
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
@@ -1018,6 +1019,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             Bottleneck_EMSCP,
             C2f_Faster,
             C2f_Faster_EMA,
+            C3k2_Faster,
         }:
             if args[0] == 'head_channel':
                 args[0] = d[args[0]]
@@ -1051,10 +1053,11 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 C3k2_EMSCP,
                 C2f_Faster_EMA,
                 C2f_Faster,
+                C3k2_Faster,
             }:
                 args.insert(2, n)  # number of repeats
                 n = 1
-            if m is {C3k2, C3k2_EMSCP} :  # for M/L/X sizes
+            if m is {C3k2, C3k2_EMSCP, C3k2_Faster} :  # for M/L/X sizes
                 legacy = False
                 if scale in "mlx":
                     args[3] = True

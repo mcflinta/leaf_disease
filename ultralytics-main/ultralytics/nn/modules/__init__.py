@@ -67,6 +67,7 @@ from .block import (
     Partial_conv3,
     C2f_Faster,
     C2f_Faster_EMA,
+    C3k2_Faster,
 )
 from .conv import (
     CBAM,
@@ -178,6 +179,7 @@ __all__ = (
     'C2f_Faster',
     'C2f_Faster_EMA',
     'EMA',
+    'C3k2_Faster',
 )
 
 from .attention import *
