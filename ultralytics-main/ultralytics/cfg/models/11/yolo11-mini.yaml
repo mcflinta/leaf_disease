@@ -1,0 +1,45 @@
+# Ultralytics YOLO 🚀, AGPL-3.0 license
+# YOLO11 object detection model with P3-P5 outputs. For Usage examples see https://docs.ultralytics.com/tasks/detect
+
+# Parameters
+nc: 2  # Số lượng lớp (2: early_sigatoka, late_sigatoka)
+scales: # Tinh chỉnh độ phức tạp của mô hình
+  # [depth, width, max_channels]
+  n: [0.50, 0.25, 512]  # scale nhẹ nhất, phù hợp bài toán nhỏ
+  s: [0.50, 0.50, 512]  # tăng độ rộng kênh, vẫn nhẹ
+  m: [0.75, 0.75, 512]  # vừa phải, không quá nặng
+
+# YOLO11n backbone
+backbone:
+  # [from, repeats, module, args]
+  - [-1, 1, Conv, [32, 3, 2]]       # 0-P1/2: giảm số kênh từ 64 -> 32
+  - [-1, 1, Conv, [64, 3, 2]]       # 1-P2/4
+  - [-1, 1, C3k2, [128, False, 0.25]] # giảm repeats từ 2 -> 1 để làm nhẹ
+  - [-1, 1, Conv, [128, 3, 2]]      # 3-P3/8
+  - [-1, 2, C3k2, [256, False, 0.25]]
+  - [-1, 1, Conv, [256, 3, 2]]      # 5-P4/16
+  - [-1, 1, C3k2, [256, True]]      # giảm số kênh từ 512 -> 256
+  - [-1, 1, Conv, [512, 3, 2]]      # 7-P5/32
+  - [-1, 1, C3k2, [512, True]]      # giảm số kênh từ 1024 -> 512
+  - [-1, 1, SPPF, [512, 5]]         # giảm kênh trong SPPF
+  - [-1, 1, C2PSA, [512]]           # giữ nguyên để tăng khả năng chú ý
+
+# YOLO11n head
+head:
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 6], 1, Concat, [1]]       # cat backbone P4
+  - [-1, 1, C3k2, [256, False]]     # giảm repeats từ 2 -> 1
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
+  - [[-1, 4], 1, Concat, [1]]       # cat backbone P3
+  - [-1, 1, C3k2, [128, False]]     # giảm số kênh từ 256 -> 128 (P3/8-small)
+
+  - [-1, 1, Conv, [128, 3, 2]]
+  - [[-1, 13], 1, Concat, [1]]      # cat head P4
+  - [-1, 1, C3k2, [256, False]]     # giảm số kênh từ 512 -> 256 (P4/16-medium)
+
+  - [-1, 1, Conv, [256, 3, 2]]
+  - [[-1, 10], 1, Concat, [1]]      # cat head P5
+  - [-1, 1, C3k2, [512, True]]      # giữ nguyên số kênh (P5/32-large)
+
+  - [[16, 19, 22], 1, Detect, [nc]] # Detect(P3, P4, P5)
