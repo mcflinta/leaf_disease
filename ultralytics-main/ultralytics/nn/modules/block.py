@@ -9,7 +9,6 @@ from ultralytics.utils.torch_utils import fuse_conv_and_bn
 
 from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
-from .attention import *
 
 __all__ = (
     "DFL",
@@ -30,7 +29,6 @@ __all__ = (
     "C3Ghost",
     "GhostBottleneck",
     "Bottleneck",
-    "Bottleneck_EMSCP"
     "BottleneckCSP",
     "Proto",
     "RepC3",
@@ -51,16 +49,6 @@ __all__ = (
     "Attention",
     "PSA",
     "SCDown",
-    "EMSConv",
-    "EMSConvP",
-    'C2f_EMSC',
-    'C2f_EMCSP',
-    'ShadowOcclusionAttention',
-    'C3k2_EMSCP',
-    'Partial_conv3',
-    'C2f_Faster',
-    'C2f_Faster_EMA',
-    'C3k2_Faster',
 )
 
 
@@ -292,8 +280,8 @@ class RepC3(nn.Module):
         """Initialize CSP Bottleneck with a single convolution using input channels, output channels, and number."""
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c2, 1, 1)
-        self.cv2 = Conv(c1, c2, 1, 1)
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c1, c_, 1, 1)
         self.m = nn.Sequential(*[RepConv(c_, c_) for _ in range(n)])
         self.cv3 = Conv(c_, c2, 1, 1) if c_ != c2 else nn.Identity()
 
@@ -1119,293 +1107,3 @@ class SCDown(nn.Module):
     def forward(self, x):
         """Applies convolution and downsampling to the input tensor in the SCDown module."""
         return self.cv2(self.cv1(x))
-
-from einops import rearrange
-class EMSConv(nn.Module):
-    # Efficient Multi-Scale Conv
-    def __init__(self, channel=256, kernels=[3, 5]):
-        super().__init__()
-        self.groups = len(kernels)
-        min_ch = channel // 4
-        assert min_ch >= 16, f'channel must Greater than {64}, but {channel}'
-        
-        self.convs = nn.ModuleList([])
-        for ks in kernels:
-            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
-        self.conv_1x1 = Conv(channel, channel, k=1)
-        
-    def forward(self, x):
-        _, c, _, _ = x.size()
-        x_cheap, x_group = torch.split(x, [c // 2, c // 2], dim=1)
-        x_group = rearrange(x_group, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
-        x_group = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
-        x_group = rearrange(x_group, 'g bs ch h w -> bs (g ch) h w')
-        x = torch.cat([x_cheap, x_group], dim=1)
-        x = self.conv_1x1(x)
-        
-        return x
-
-class EMSConvP(nn.Module):
-    # Efficient Multi-Scale Conv Plus
-    def __init__(self, channel=256, kernels=[1, 3, 5, 7]):
-        super().__init__()
-        self.groups = len(kernels)
-        min_ch = channel // self.groups
-        assert min_ch >= 16, f'channel must Greater than {16 * self.groups}, but {channel}'
-        
-        self.convs = nn.ModuleList([])
-        for ks in kernels:
-            self.convs.append(Conv(c1=min_ch, c2=min_ch, k=ks))
-        self.conv_1x1 = Conv(channel, channel, k=1)
-        
-    def forward(self, x):
-        x_group = rearrange(x, 'bs (g ch) h w -> bs ch h w g', g=self.groups)
-        x_convs = torch.stack([self.convs[i](x_group[..., i]) for i in range(len(self.convs))])
-        x_convs = rearrange(x_convs, 'g bs ch h w -> bs (g ch) h w')
-        x_convs = self.conv_1x1(x_convs)
-        
-        return x_convs
-
-class Bottleneck_EMSC(Bottleneck):
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        super().__init__(c1, c2, shortcut, g, k, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
-        self.cv2 = EMSConv(c2)
-
-class C2f_EMSC(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(Bottleneck_EMSC(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
-
-class Bottleneck_EMSCP(Bottleneck):
-    def __init__(self, c1, c2, shortcut=True, g=1, k=(3, 3), e=0.5):
-        super().__init__(c1, c2, shortcut, g, k, e)
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, k[0], 1)
-        self.cv2 = EMSConvP(c2)
-        # self.add = shortcut and c1 == c2
-
-class C2f_EMSCP(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(Bottleneck_EMSCP(self.c, self.c, shortcut, g, k=(3, 3), e=1.0) for _ in range(n))
-
-class C3k2_EMSCP(C3k2):
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(
-            Bottleneck_EMSCP(self.c, self.c, shortcut, g) for _ in range(n)
-        )
-
-# class C3k2_EMSCP(C2f):
-#     def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-#         super().__init__(c1, c2, n, shortcut, g, e)
-#         self.m = nn.ModuleList(
-#             C3k_EMSCP(self.c, self.c, 2, shortcut, g) if c3k else Bottleneck_EMSCP(self.c, self.c, shortcut, g) for _ in range(n)
-#         )
-
-
-                               
-class ShadowOcclusionAttention(nn.Module):
-    def __init__(self, channels):
-        super(ShadowOcclusionAttention, self).__init__()
-        self.channel_att = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(channels, channels // 8, 1, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(channels // 8, channels, 1, bias=False),
-            nn.Sigmoid()
-        )
-        self.spatial_att = nn.Sequential(
-            nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False),
-            nn.Sigmoid()
-        )
-
-    def forward(self, x):
-        # Channel Attention
-        ca = self.channel_att(x)
-        x = x * ca
-        # Spatial Attention
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        sa = torch.cat([avg_out, max_out], dim=1)
-        sa = self.spatial_att(sa)
-        x = x * sa
-        return x
-
-
-
-from timm.models.layers import DropPath
-
-class Partial_conv3(nn.Module):
-    def __init__(self, dim, n_div=4, forward='split_cat'):
-        super().__init__()
-        self.dim_conv3 = dim // n_div
-        self.dim_untouched = dim - self.dim_conv3
-        self.partial_conv3 = nn.Conv2d(self.dim_conv3, self.dim_conv3, 3, 1, 1, bias=False)
-
-        if forward == 'slicing':
-            self.forward = self.forward_slicing
-        elif forward == 'split_cat':
-            self.forward = self.forward_split_cat
-        else:
-            raise NotImplementedError
-
-    def forward_slicing(self, x):
-        # only for inference
-        x = x.clone()   # !!! Keep the original input intact for the residual connection later
-        x[:, :self.dim_conv3, :, :] = self.partial_conv3(x[:, :self.dim_conv3, :, :])
-        return x
-
-    def forward_split_cat(self, x):
-        # for training/inference
-        x1, x2 = torch.split(x, [self.dim_conv3, self.dim_untouched], dim=1)
-        x1 = self.partial_conv3(x1)
-        x = torch.cat((x1, x2), 1)
-        return x
-class Faster_Block(nn.Module):
-    def __init__(self,
-                 inc,
-                 dim,
-                 n_div=4,
-                 mlp_ratio=2,
-                 drop_path=0.1,
-                 layer_scale_init_value=0.0,
-                 pconv_fw_type='split_cat'
-                 ):
-        super().__init__()
-        self.dim = dim
-        self.mlp_ratio = mlp_ratio
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.n_div = n_div
-
-        mlp_hidden_dim = int(dim * mlp_ratio)
-
-        mlp_layer = [
-            Conv(dim, mlp_hidden_dim, 1),
-            nn.Conv2d(mlp_hidden_dim, dim, 1, bias=False)
-        ]
-
-        self.mlp = nn.Sequential(*mlp_layer)
-
-        self.spatial_mixing = Partial_conv3(
-            dim,
-            n_div,
-            pconv_fw_type
-        )
-        
-        self.adjust_channel = None
-        if inc != dim:
-            self.adjust_channel = Conv(inc, dim, 1)
-
-        if layer_scale_init_value > 0:
-            self.layer_scale = nn.Parameter(layer_scale_init_value * torch.ones((dim)), requires_grad=True)
-            self.forward = self.forward_layer_scale
-        else:
-            self.forward = self.forward
-
-    def forward(self, x):
-        if self.adjust_channel is not None:
-            x = self.adjust_channel(x)
-        shortcut = x
-        x = self.spatial_mixing(x)
-        x = shortcut + self.drop_path(self.mlp(x))
-        return x
-
-    def forward_layer_scale(self, x):
-        shortcut = x
-        x = self.spatial_mixing(x)
-        x = shortcut + self.drop_path(
-            self.layer_scale.unsqueeze(-1).unsqueeze(-1) * self.mlp(x))
-        return x
-
-
-class C2f_Faster(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(Faster_Block(self.c, self.c) for _ in range(n))
-
-class C3k2_Faster(C2f):
-    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
-        """Initializes the C3k2 module, a faster CSP Bottleneck with 2 convolutions and optional C3k blocks."""
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(
-            C3k(self.c, self.c, 2, shortcut, g) if c3k else Faster_Block(self.c, self.c, shortcut, g) for _ in range(n)
-        )
-
-# class C3k_Faster(C3):
-#     """C3k is a CSP bottleneck module with customizable kernel sizes for feature extraction in neural networks."""
-
-#     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, k=3):
-#         """Initializes the C3k module with specified channels, number of layers, and configurations."""
-#         super().__init__(c1, c2, n, shortcut, g, e)
-#         c_ = int(c2 * e)  # hidden channels
-#         # self.m = nn.Sequential(*(RepBottleneck(c_, c_, shortcut, g, k=(k, k), e=1.0) for _ in range(n)))
-#         self.m = nn.Sequential(*(Faster_Block(c_, c_, shortcut, g, k=(k, k), e=1.0) for _ in range(n)))
-
-class Faster_Block_EMA(nn.Module):
-    def __init__(self,
-                 inc,
-                 dim,
-                 n_div=4,
-                 mlp_ratio=2,
-                 drop_path=0.1,
-                 layer_scale_init_value=0.0,
-                 pconv_fw_type='split_cat'
-                 ):
-        super().__init__()
-        self.dim = dim
-        self.mlp_ratio = mlp_ratio
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.n_div = n_div
-
-        mlp_hidden_dim = int(dim * mlp_ratio)
-
-        mlp_layer = [
-            Conv(dim, mlp_hidden_dim, 1),
-            nn.Conv2d(mlp_hidden_dim, dim, 1, bias=False)
-        ]
-
-        self.mlp = nn.Sequential(*mlp_layer)
-
-        self.spatial_mixing = Partial_conv3(
-            dim,
-            n_div,
-            pconv_fw_type
-        )
-        self.attention = EMA(dim)
-        
-        self.adjust_channel = None
-        if inc != dim:
-            self.adjust_channel = Conv(inc, dim, 1)
-
-        if layer_scale_init_value > 0:
-            self.layer_scale = nn.Parameter(layer_scale_init_value * torch.ones((dim)), requires_grad=True)
-            self.forward = self.forward_layer_scale
-        else:
-            self.forward = self.forward
-
-    def forward(self, x):
-        if self.adjust_channel is not None:
-            x = self.adjust_channel(x)
-        shortcut = x
-        x = self.spatial_mixing(x)
-        x = shortcut + self.attention(self.drop_path(self.mlp(x)))
-        return x
-
-    def forward_layer_scale(self, x):
-        shortcut = x
-        x = self.spatial_mixing(x)
-        x = shortcut + self.drop_path(self.layer_scale.unsqueeze(-1).unsqueeze(-1) * self.mlp(x))
-        return x
-
-class C2f_Faster_EMA(C2f):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(Faster_Block_EMA(self.c, self.c) for _ in range(n))
-
-class C3k2_Faster_EMA(C3k2):
-    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
-        super().__init__(c1, c2, n, shortcut, g, e)
-        self.m = nn.ModuleList(Faster_Block_EMA(self.c, self.c) for _ in range(n))

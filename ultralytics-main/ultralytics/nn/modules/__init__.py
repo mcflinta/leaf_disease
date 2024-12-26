@@ -36,7 +36,6 @@ from .block import (
     BNContrastiveHead,
     Bottleneck,
     BottleneckCSP,
-    Bottleneck_EMSCP,
     C2f,
     C2fAttn,
     C2fCIB,
@@ -57,17 +56,6 @@ from .block import (
     RepVGGDW,
     ResNetLayer,
     SCDown,
-    EMSConv,
-    EMSConvP,
-    C2f_EMSCP,
-    C2f_EMSC,
-    C3k2_EMSCP,
-    ShadowOcclusionAttention,
-    ShadowOcclusionAttention,
-    Partial_conv3,
-    C2f_Faster,
-    C2f_Faster_EMA,
-    C3k2_Faster,
 )
 from .conv import (
     CBAM,
@@ -136,7 +124,6 @@ __all__ = (
     "GhostBottleneck",
     "Bottleneck",
     "BottleneckCSP",
-    "Bottleneck_EMSCP"
     "Proto",
     "Detect",
     "Segment",
@@ -169,17 +156,4 @@ __all__ = (
     "C2fCIB",
     "Attention",
     "PSA",
-    'C2f_EMSC',
-    'C2f_EMSCP',
-    'EMSConv',
-    'EMSConvP',
-    'C3k2_EMSCP',
-    'ShadowOcclusionAttention',
-    'Partial_conv3',
-    'C2f_Faster',
-    'C2f_Faster_EMA',
-    'EMA',
-    'C3k2_Faster',
 )
-
-from .attention import *
